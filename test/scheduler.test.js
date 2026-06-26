@@ -260,6 +260,47 @@ test("createTaskController can run now from waiting state", () => {
   assert.deepEqual(clearedTimers, [timers[0]]);
 });
 
+test("createTaskController run now from stopped state does not start the loop", () => {
+  const spawned = [];
+  const timers = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: ["--flag"],
+    },
+    {
+      random: () => 0.5,
+      now: () => 1_000,
+      setTimeout: (callback, delayMs) => {
+        const timer = { callback, delayMs, id: timers.length + 1 };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: () => {},
+      spawn: (command, args) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args, child });
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+
+  assert.equal(spawned.length, 1);
+  assert.equal(task.getState().status, "running");
+
+  spawned[0].child.emit("close", 0);
+
+  assert.equal(task.getState().status, "stopped");
+  assert.equal(task.getState().nextRunAt, null);
+  assert.deepEqual(timers, []);
+});
+
 test("createTaskController kills a running child when stopped", () => {
   let killedWith = null;
 
