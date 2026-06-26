@@ -34,7 +34,6 @@ test("default commands match the requested codex and claude invocations", () => 
         "--skip-git-repo-check",
         "--sandbox",
         "read-only",
-        "--ignore-user-config",
         "--ignore-rules",
         "--ephemeral",
         "{{arithmeticPrompt}}",

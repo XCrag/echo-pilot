@@ -12,7 +12,6 @@
         "--skip-git-repo-check",
         "--sandbox",
         "read-only",
-        "--ignore-user-config",
         "--ignore-rules",
         "--ephemeral",
         "{{arithmeticPrompt}}"
