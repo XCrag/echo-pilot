@@ -301,6 +301,154 @@ test("createTaskController run now from stopped state does not start the loop", 
   assert.deepEqual(timers, []);
 });
 
+test("createTaskController continuous run starts the next run immediately after close", () => {
+  const spawned = [];
+  const timers = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: ["--flag"],
+    },
+    {
+      random: () => 0.5,
+      now: () => 1_000,
+      setTimeout: (callback, delayMs) => {
+        const timer = { callback, delayMs, id: timers.length + 1 };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: () => {},
+      spawn: (command, args) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args, child });
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runContinuous();
+
+  assert.equal(spawned.length, 1);
+  assert.equal(task.getState().status, "running");
+
+  spawned[0].child.emit("close", 0);
+
+  assert.equal(spawned.length, 2);
+  assert.equal(task.getState().status, "running");
+  assert.deepEqual(timers, []);
+});
+
+test("createTaskController continuous run clears an existing waiting timer", () => {
+  const spawned = [];
+  const timers = [];
+  const clearedTimers = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      random: () => 0.5,
+      now: () => 1_000,
+      setTimeout: (callback, delayMs) => {
+        const timer = { callback, delayMs, id: timers.length + 1 };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: (timer) => {
+        clearedTimers.push(timer);
+      },
+      spawn: (command, args) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args, child });
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  spawned[0].child.emit("close", 0);
+  task.runContinuous();
+
+  assert.equal(spawned.length, 2);
+  assert.equal(task.getState().status, "running");
+  assert.deepEqual(clearedTimers, [timers[0]]);
+});
+
+test("createTaskController continuous run waits for a running child to finish", () => {
+  const spawned = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      spawn: () => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push(child);
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  task.runContinuous();
+
+  assert.equal(spawned.length, 1);
+
+  spawned[0].emit("close", 0);
+
+  assert.equal(spawned.length, 2);
+  assert.equal(task.getState().status, "running");
+});
+
+test("createTaskController stop prevents a continuous run from starting the next run", () => {
+  const spawned = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      spawn: () => {
+        const child = new EventEmitter();
+        child.killed = false;
+        child.kill = () => {
+          child.killed = true;
+        };
+        spawned.push(child);
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runContinuous();
+  task.stop();
+  spawned[0].emit("close", 0);
+
+  assert.equal(spawned.length, 1);
+  assert.equal(task.getState().status, "stopped");
+});
+
 test("createTaskController kills a running child when stopped", () => {
   let killedWith = null;
 
@@ -404,6 +552,50 @@ test("createRunner starts each configured command in its own loop", () => {
     { command: "one", args: ["a"] },
     { command: "two", args: ["b"] },
   ]);
+});
+
+test("createRunner starts each configured command in continuous mode", () => {
+  const spawned = [];
+
+  const runner = createRunner(
+    [
+      { name: "first", command: "one", args: ["a"] },
+      { name: "second", command: "two", args: ["b"] },
+    ],
+    {
+      spawn: (command, args) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args, child });
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      random: () => 0.5,
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  runner.runContinuous();
+
+  assert.deepEqual(
+    spawned.map(({ command, args }) => ({ command, args })),
+    [
+      { command: "one", args: ["a"] },
+      { command: "two", args: ["b"] },
+    ],
+  );
+
+  spawned[0].child.emit("close", 0);
+
+  assert.deepEqual(
+    spawned.map(({ command, args }) => ({ command, args })),
+    [
+      { command: "one", args: ["a"] },
+      { command: "two", args: ["b"] },
+      { command: "one", args: ["a"] },
+    ],
+  );
 });
 
 test("createRunner updates schedule and reschedules waiting tasks", () => {

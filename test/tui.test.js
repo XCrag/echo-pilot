@@ -48,7 +48,7 @@ test('renderDashboard list mode shows task status without selected output', () =
 
   assert.match(output, /┌ Auto Reply/);
   assert.match(output, /│ 2 tasks · schedule 120s ±20s/);
-  assert.match(output, /│ ↑\/↓ select · enter detail · s start · x stop · r run · q quit/);
+  assert.match(output, /│ ↑\/↓ select · enter detail · s start · x stop · r once · l loop · q quit/);
   assert.match(output, /│ Task\s+│ Status\s+│ Next Run\s+│ Last\s+│ Sel │/);
   assert.match(output, /│ codex\s+│ RUNNING\s+│ -\s+│ -\s+│\s+│/);
   assert.match(output, /│ claude\s+│ WAITING\s+│ 2m 0s\s+│ exit=0\s+│ ◀\s+│/);
@@ -75,7 +75,7 @@ test('renderDashboard detail mode shows selected task command and output', () =>
   assert.match(output, /sh -c claude \.\.\./);
   assert.match(output, /Selected Output/);
   assert.match(output, /\[stdout\] \{"result":"42"\}/);
-  assert.match(output, /esc back · x stop · r run now · s start\/resume · q quit/);
+  assert.match(output, /esc back · x stop · r run once · l loop · s start\/resume · q quit/);
 });
 
 test('renderDashboard detail mode limits output to terminal height', () => {
@@ -91,7 +91,7 @@ test('renderDashboard detail mode limits output to terminal height', () => {
   const lines = output.split('\n');
 
   assert.ok(lines.length <= 18, `expected at most 18 lines, got ${lines.length}`);
-  assert.match(output, /esc back · x stop · r run now · s start\/resume · q quit/);
+  assert.match(output, /esc back · x stop · r run once · l loop · s start\/resume · q quit/);
   assert.match(output, /\[stdout\] line 50/);
   assert.doesNotMatch(output, /\[stdout\] line 1/);
 });
@@ -143,6 +143,48 @@ test('startTui switches between list and detail mode with enter and escape', () 
 
   assert.match(chunks.at(-1), /Recent Logs/);
   assert.doesNotMatch(chunks.at(-1), /Task Detail/);
+
+  session.close();
+});
+
+test('startTui starts continuous run for the selected task with l', () => {
+  const stdin = new EventEmitter();
+  stdin.isTTY = true;
+  stdin.setRawMode = () => {};
+  const stdout = {
+    isTTY: false,
+    write: () => {},
+  };
+  let continuousRuns = 0;
+  const tasks = sampleTasks().map((state) => ({
+    getState: () => state,
+    subscribe: () => () => {},
+    start: () => {},
+    stop: () => {},
+    runNow: () => {},
+    runContinuous: () => {
+      continuousRuns += 1;
+    },
+  }));
+  const runner = {
+    getTasks: () => tasks,
+    start: () => {},
+    stop: () => {},
+  };
+
+  const session = startTui(runner, {
+    stdin,
+    stdout,
+    logs: [],
+    now: () => 1_000,
+    setInterval: (callback) => callback,
+    clearInterval: () => {},
+    exit: () => {},
+  });
+
+  stdin.emit('keypress', 'l', { name: 'l' });
+
+  assert.equal(continuousRuns, 1);
 
   session.close();
 });
