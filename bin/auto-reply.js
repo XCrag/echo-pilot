@@ -12,7 +12,8 @@ function shutdown(signal) {
   process.exit(0);
 }
 
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.once(signal, shutdown);
+}
 
 runner.start();

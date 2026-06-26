@@ -16,7 +16,9 @@ const runner = createRunner(commands, { ...schedule, logger, captureOutput: true
 
 session = startTui(runner, { logs });
 
-process.once('SIGTERM', () => {
-  session.close();
-  process.exit(0);
-});
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.once(signal, () => {
+    session.close();
+    process.exit(0);
+  });
+}
