@@ -1,0 +1,419 @@
+const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const test = require("node:test");
+
+const {
+  DEFAULT_COMMANDS,
+  createTaskController,
+  createRunner,
+  getJitteredDelayMs,
+  runCommandLoop,
+} = require("../lib/scheduler");
+
+test("getJitteredDelayMs returns base delay plus or minus jitter", () => {
+  assert.equal(getJitteredDelayMs({ random: () => 0 }), 100_000);
+  assert.equal(getJitteredDelayMs({ random: () => 0.5 }), 120_000);
+  assert.equal(getJitteredDelayMs({ random: () => 1 }), 140_000);
+});
+
+test("getJitteredDelayMs supports custom base delay and jitter", () => {
+  const options = { baseDelayMs: 300_000, jitterMs: 20_000 };
+
+  assert.equal(getJitteredDelayMs({ ...options, random: () => 0 }), 280_000);
+  assert.equal(getJitteredDelayMs({ ...options, random: () => 0.5 }), 300_000);
+  assert.equal(getJitteredDelayMs({ ...options, random: () => 1 }), 320_000);
+});
+
+test("default commands match the requested codex and claude invocations", () => {
+  assert.deepEqual(DEFAULT_COMMANDS, [
+    {
+      name: "codex",
+      command: "codex",
+      args: [
+        "exec",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--ephemeral",
+        "{{arithmeticPrompt}}",
+      ],
+    },
+    {
+      name: "claude",
+      command: "sh",
+      args: [
+        "-c",
+        'claude -p --bare --tools "" --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq \'{result, usage}\'',
+      ],
+    },
+  ]);
+});
+
+test("runCommandLoop starts immediately and schedules the next run after close", () => {
+  const spawned = [];
+  const timers = [];
+
+  const loop = runCommandLoop(
+    {
+      name: "sample",
+      command: "example",
+      args: ["--flag"],
+    },
+    {
+      random: () => 0.5,
+      setTimeout: (callback, delayMs) => {
+        timers.push({ callback, delayMs });
+        return { id: timers.length };
+      },
+      clearTimeout: () => {},
+      spawn: (command, args, options) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args, options, child });
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  loop.start();
+
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].command, "example");
+  assert.deepEqual(spawned[0].args, ["--flag"]);
+  assert.equal(spawned[0].options.stdio, "inherit");
+
+  spawned[0].child.emit("close", 0);
+
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].delayMs, 120_000);
+
+  timers[0].callback();
+
+  assert.equal(spawned.length, 2);
+});
+
+test("runCommandLoop uses configured schedule delay", () => {
+  const spawned = [];
+  const timers = [];
+
+  const loop = runCommandLoop(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      baseDelayMs: 300_000,
+      jitterMs: 20_000,
+      random: () => 0,
+      setTimeout: (callback, delayMs) => {
+        timers.push({ callback, delayMs });
+        return { id: timers.length };
+      },
+      clearTimeout: () => {},
+      spawn: () => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push(child);
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  loop.start();
+  spawned[0].emit("close", 0);
+
+  assert.equal(timers[0].delayMs, 280_000);
+});
+
+test("runCommandLoop renders command templates before every run", () => {
+  const spawned = [];
+  const timers = [];
+  let promptNumber = 0;
+
+  const loop = runCommandLoop(
+    {
+      name: "sample",
+      command: "example",
+      args: ["{{arithmeticPrompt}}"],
+    },
+    {
+      random: () => 0.5,
+      setTimeout: (callback, delayMs) => {
+        timers.push({ callback, delayMs });
+        return { id: timers.length };
+      },
+      clearTimeout: () => {},
+      promptFactory: () => `prompt-${++promptNumber}`,
+      spawn: (command, args) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args, child });
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  loop.start();
+  spawned[0].child.emit("close", 0);
+  timers[0].callback();
+
+  assert.deepEqual(
+    spawned.map((entry) => entry.args),
+    [["prompt-1"], ["prompt-2"]],
+  );
+});
+
+test("createTaskController exposes status and can stop a waiting task", () => {
+  const spawned = [];
+  const timers = [];
+  const clearedTimers = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: ["{{arithmeticPrompt}}"],
+    },
+    {
+      random: () => 0.5,
+      now: () => 1_000,
+      setTimeout: (callback, delayMs) => {
+        const timer = { callback, delayMs, id: timers.length + 1 };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: (timer) => {
+        clearedTimers.push(timer);
+      },
+      promptFactory: () => "prompt",
+      spawn: (command, args) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args, child });
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  assert.equal(task.getState().status, "stopped");
+
+  task.start();
+
+  assert.equal(task.getState().status, "running");
+  assert.deepEqual(spawned[0].args, ["prompt"]);
+
+  spawned[0].child.emit("close", 0);
+
+  assert.equal(task.getState().status, "waiting");
+  assert.equal(task.getState().nextRunAt, 121_000);
+
+  task.stop();
+
+  assert.equal(task.getState().status, "stopped");
+  assert.deepEqual(clearedTimers, [timers[0]]);
+});
+
+test("createTaskController can run now from waiting state", () => {
+  const spawned = [];
+  const timers = [];
+  const clearedTimers = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: ["--flag"],
+    },
+    {
+      random: () => 0.5,
+      now: () => 1_000,
+      setTimeout: (callback, delayMs) => {
+        const timer = { callback, delayMs, id: timers.length + 1 };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: (timer) => {
+        clearedTimers.push(timer);
+      },
+      spawn: (command, args) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args, child });
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  spawned[0].child.emit("close", 0);
+  task.runNow();
+
+  assert.equal(spawned.length, 2);
+  assert.equal(task.getState().status, "running");
+  assert.deepEqual(clearedTimers, [timers[0]]);
+});
+
+test("createTaskController kills a running child when stopped", () => {
+  let killedWith = null;
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      spawn: () => {
+        const child = new EventEmitter();
+        child.killed = false;
+        child.kill = (signal) => {
+          killedWith = signal;
+          child.killed = true;
+        };
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  task.stop();
+
+  assert.equal(killedWith, "SIGTERM");
+  assert.equal(task.getState().status, "stopped");
+});
+
+test("createTaskController captures stdout and stderr when captureOutput is enabled", () => {
+  let spawnedChild = null;
+  let spawnOptions = null;
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      captureOutput: true,
+      maxOutputLines: 3,
+      spawn: (_command, _args, options) => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        spawnedChild = child;
+        spawnOptions = options;
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+
+  assert.deepEqual(spawnOptions.stdio, ["ignore", "pipe", "pipe"]);
+
+  spawnedChild.stdout.emit("data", Buffer.from("first\nsecond\n"));
+  spawnedChild.stderr.emit("data", Buffer.from("warn\n"));
+  spawnedChild.stdout.emit("data", Buffer.from("third\n"));
+
+  assert.deepEqual(task.getState().outputLines, [
+    "[stdout] second",
+    "[stderr] warn",
+    "[stdout] third",
+  ]);
+});
+
+test("createRunner starts each configured command in its own loop", () => {
+  const spawned = [];
+
+  const runner = createRunner(
+    [
+      { name: "first", command: "one", args: ["a"] },
+      { name: "second", command: "two", args: ["b"] },
+    ],
+    {
+      spawn: (command, args) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push({ command, args });
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      random: () => 0.5,
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  runner.start();
+
+  assert.deepEqual(spawned, [
+    { command: "one", args: ["a"] },
+    { command: "two", args: ["b"] },
+  ]);
+});
+
+test("createRunner updates schedule and reschedules waiting tasks", () => {
+  const spawned = [];
+  const timers = [];
+  const clearedTimers = [];
+
+  const runner = createRunner(
+    [
+      {
+        name: "sample",
+        command: "example",
+        args: [],
+      },
+    ],
+    {
+      baseDelayMs: 120_000,
+      jitterMs: 20_000,
+      random: () => 0.5,
+      now: () => 1_000,
+      setTimeout: (callback, delayMs) => {
+        const timer = { callback, delayMs, id: timers.length + 1 };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: (timer) => {
+        clearedTimers.push(timer);
+      },
+      spawn: () => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push(child);
+        return child;
+      },
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  runner.start();
+  spawned[0].emit("close", 0);
+
+  assert.equal(timers[0].delayMs, 120_000);
+
+  runner.updateSchedule({ baseDelayMs: 300_000, jitterMs: 20_000 });
+
+  assert.deepEqual(runner.getSchedule(), {
+    baseDelayMs: 300_000,
+    jitterMs: 20_000,
+  });
+  assert.deepEqual(clearedTimers, [timers[0]]);
+  assert.equal(timers[1].delayMs, 300_000);
+  assert.equal(runner.getTasks()[0].getState().nextRunAt, 301_000);
+});

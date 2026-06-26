@@ -1,0 +1,13 @@
+{
+  "name": "auto-reply",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "bin": {
+    "auto-reply": "./bin/auto-reply.js",
+    "auto-reply-tui": "./bin/auto-reply-tui.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

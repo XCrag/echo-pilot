@@ -1,0 +1,83 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+
+const { loadCommands, loadConfig } = require('../lib/config');
+
+test('loadCommands reads command definitions from a JSON file', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-reply-config-'));
+  const configPath = path.join(directory, 'commands.json');
+
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify(
+      [
+        {
+          name: 'custom',
+          command: 'node',
+          args: ['--version'],
+        },
+      ],
+      null,
+      2,
+    ),
+  );
+
+  assert.deepEqual(loadCommands(configPath), [
+    {
+      name: 'custom',
+      command: 'node',
+      args: ['--version'],
+    },
+  ]);
+});
+
+test('loadConfig reads schedule and commands from an object config file', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-reply-config-'));
+  const configPath = path.join(directory, 'commands.json');
+
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      schedule: {
+        baseDelaySeconds: 300,
+        jitterSeconds: 20,
+      },
+      commands: [
+        {
+          name: 'custom',
+          command: 'node',
+          args: ['--version'],
+        },
+      ],
+    }),
+  );
+
+  assert.deepEqual(loadConfig(configPath), {
+    schedule: {
+      baseDelayMs: 300_000,
+      jitterMs: 20_000,
+    },
+    commands: [
+      {
+        name: 'custom',
+        command: 'node',
+        args: ['--version'],
+      },
+    ],
+  });
+});
+
+test('loadCommands validates command definitions', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-reply-config-'));
+  const configPath = path.join(directory, 'commands.json');
+
+  fs.writeFileSync(configPath, JSON.stringify([{ name: 'broken', command: 'node' }]));
+
+  assert.throws(
+    () => loadCommands(configPath),
+    /commands\[0\]\.args must be an array/,
+  );
+});
