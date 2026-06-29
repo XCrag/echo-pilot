@@ -3,7 +3,7 @@
 Small CLI that repeatedly runs two commands:
 
 ```bash
-codex exec --skip-git-repo-check --sandbox read-only --ignore-rules --ephemeral "{{arithmeticPrompt}}"
+codex exec --model gpt-5.4 --config 'model_reasoning_effort="low"' --skip-git-repo-check --sandbox read-only --ignore-rules --ephemeral "{{arithmeticPrompt}}"
 claude -p --bare --tools "" --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq '{result, usage}'
 ```
 
@@ -68,7 +68,7 @@ Edit `commands.json`:
     {
       "name": "codex",
       "command": "codex",
-      "args": ["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ignore-rules", "--ephemeral", "{{arithmeticPrompt}}"]
+      "args": ["exec", "--model", "gpt-5.4", "--config", "model_reasoning_effort=\"low\"", "--skip-git-repo-check", "--sandbox", "read-only", "--ignore-rules", "--ephemeral", "{{arithmeticPrompt}}"]
     },
     {
       "name": "claude",

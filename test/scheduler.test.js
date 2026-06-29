@@ -31,6 +31,10 @@ test("default commands match the requested codex and claude invocations", () => 
       command: "codex",
       args: [
         "exec",
+        "--model",
+        "gpt-5.4",
+        "--config",
+        'model_reasoning_effort="low"',
         "--skip-git-repo-check",
         "--sandbox",
         "read-only",
