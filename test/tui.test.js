@@ -16,6 +16,7 @@ function sampleTasks() {
     {
       name: 'codex',
       status: 'running',
+      mode: 'loop',
       command: 'codex',
       args: ['exec', 'Calculate 1 + 2. Reply with only the final number.'],
       nextRunAt: null,
@@ -27,6 +28,7 @@ function sampleTasks() {
     {
       name: 'claude',
       status: 'waiting',
+      mode: 'timer',
       command: 'sh',
       args: ['-c', 'claude ...'],
       nextRunAt: 121_000,
@@ -49,9 +51,9 @@ test('renderDashboard list mode shows task status without selected output', () =
   assert.match(output, /┌ Auto Reply/);
   assert.match(output, /│ 2 tasks · schedule 120s ±20s/);
   assert.match(output, /│ ↑\/↓ select · enter detail · s start · x stop · r once · l loop · q quit/);
-  assert.match(output, /│ Task\s+│ Status\s+│ Next Run\s+│ Last\s+│ Sel │/);
-  assert.match(output, /│ codex\s+│ RUNNING\s+│ -\s+│ -\s+│\s+│/);
-  assert.match(output, /│ claude\s+│ WAITING\s+│ 2m 0s\s+│ exit=0\s+│ ◀\s+│/);
+  assert.match(output, /│ Task\s+│ Status\s+│ Mode\s+│ Next Run\s+│ Last\s+│ Sel │/);
+  assert.match(output, /│ codex\s+│ RUNNING\s+│ LOOP\s+│ -\s+│ -\s+│\s+│/);
+  assert.match(output, /│ claude\s+│ WAITING\s+│ TIMER\s+│ 2m 0s\s+│ exit=0\s+│ ◀\s+│/);
   assert.match(output, /Recent Logs/);
   assert.match(output, /exit=0/);
   assert.match(output, /\[claude\] next run in 120s/);
@@ -69,6 +71,7 @@ test('renderDashboard detail mode shows selected task command and output', () =>
 
   assert.match(output, /Task Detail: claude/);
   assert.match(output, /Status:\s+WAITING/);
+  assert.match(output, /Mode:\s+TIMER/);
   assert.match(output, /Next Run:\s+2m 0s/);
   assert.match(output, /Last:\s+exit=0/);
   assert.match(output, /Selected Command/);

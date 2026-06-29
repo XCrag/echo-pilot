@@ -301,6 +301,55 @@ test("createTaskController run now from stopped state does not start the loop", 
   assert.deepEqual(timers, []);
 });
 
+test("createTaskController exposes the current run mode", () => {
+  const spawned = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      spawn: () => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawned.push(child);
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  assert.equal(task.getState().mode, "idle");
+
+  task.start();
+
+  assert.equal(task.getState().mode, "timer");
+
+  spawned[0].emit("close", 0);
+
+  assert.equal(task.getState().mode, "timer");
+
+  task.stop();
+
+  assert.equal(task.getState().mode, "idle");
+
+  task.runNow();
+
+  assert.equal(task.getState().mode, "once");
+
+  spawned[1].emit("close", 0);
+
+  assert.equal(task.getState().mode, "idle");
+
+  task.runContinuous();
+
+  assert.equal(task.getState().mode, "loop");
+});
+
 test("createTaskController continuous run starts the next run immediately after close", () => {
   const spawned = [];
   const timers = [];
