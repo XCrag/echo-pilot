@@ -34,7 +34,7 @@ test("default commands match the requested codex and claude invocations", () => 
         "--model",
         "gpt-5.5",
         "--config",
-        'model_reasoning_effort="minimal"',
+        'model_reasoning_effort="none"',
         "--config",
         'web_search="disabled"',
         "--disable",
