@@ -127,6 +127,35 @@ test("createTaskController records requested stop as stopped", () => {
   assert.equal(task.getState().lastExecution.signal, "SIGTERM");
 });
 
+test("createTaskController lets requested stop win over error before close", () => {
+  let child;
+  const recordedStatuses = [];
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      spawn: () => {
+        child = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+  task.subscribe((state) => {
+    if (state.lastExecution) recordedStatuses.push(state.lastExecution.status);
+  });
+
+  task.start();
+  task.stop();
+  child.emit("error", new Error("terminated"));
+  child.emit("close", 1, null);
+
+  assert.deepEqual(recordedStatuses, ["stopped"]);
+  assert.equal(task.getState().lastExecution.signal, "SIGTERM");
+});
+
 test("createTaskController records start failures in lastExecution", () => {
   const task = createTaskController(
     { name: "codex", command: "missing", args: [] },
@@ -146,6 +175,176 @@ test("createTaskController records start failures in lastExecution", () => {
   assert.equal(task.getState().lastExecution.status, "error");
   assert.equal(task.getState().lastExecution.error, "spawn denied");
   assert.equal(task.getState().lastExecution.finishedAt, 99);
+});
+
+test("createTaskController preserves split UTF-8 stdout while normalizing usage", () => {
+  let child;
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+  const output = Buffer.from(
+    '{"subtype":"success","result":"✓","usage":{"total_tokens":7}}',
+  );
+  const splitAt = output.indexOf(Buffer.from("✓")) + 1;
+
+  task.runNow();
+  child.stdout.emit("data", output.subarray(0, splitAt));
+  child.stdout.emit("data", output.subarray(splitAt));
+  child.emit("close", 0, null);
+
+  assert.equal(task.getState().lastExecution.usage.totalTokens, 7);
+});
+
+test("createTaskController captures non-Buffer stdout chunks", () => {
+  let child;
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  child.stdout.emit(
+    "data",
+    '{"subtype":"success","usage":{"total_tokens":8}}',
+  );
+  child.emit("close", 0, null);
+
+  assert.equal(task.getState().lastExecution.usage.totalTokens, 8);
+});
+
+test("createTaskController settles without capture and records null usage", () => {
+  let child;
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      spawn: () => {
+        child = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  child.emit("close", 0, null);
+
+  assert.equal(task.getState().lastExecution.status, "success");
+  assert.equal(task.getState().lastExecution.usage, null);
+});
+
+test("createTaskController getState isolates lastExecution and usage copies", () => {
+  let child;
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  child.stdout.emit("data", '{"usage":{"total_tokens":9}}');
+  child.emit("close", 0, null);
+  const snapshot = task.getState();
+  snapshot.lastExecution.status = "changed";
+  snapshot.lastExecution.usage.totalTokens = 999;
+
+  assert.equal(task.getState().lastExecution.status, "success");
+  assert.equal(task.getState().lastExecution.usage.totalTokens, 9);
+});
+
+test("createTaskController ignores error from an old child after restart", () => {
+  const children = [];
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      spawn: () => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        children.push(child);
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  task.stop();
+  task.runNow();
+  children[0].emit("error", new Error("old failure"));
+
+  assert.equal(task.getState().status, "running");
+  assert.equal(task.getState().lastExecution, null);
+
+  children[1].emit("close", 0, null);
+  assert.equal(task.getState().lastExecution.status, "success");
+});
+
+test("createTaskController records ordinary error only once when close follows", () => {
+  let child;
+  const recordedStatuses = [];
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      spawn: () => {
+        child = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+  task.subscribe((state) => {
+    if (state.lastExecution) recordedStatuses.push(state.lastExecution.status);
+  });
+
+  task.runNow();
+  child.emit("error", new Error("spawn failed"));
+  child.emit("close", 1, null);
+
+  assert.deepEqual(recordedStatuses, ["error"]);
+  assert.equal(task.getState().lastExecution.error, "spawn failed");
 });
 
 test("default commands match the requested codex and claude invocations", () => {
