@@ -160,3 +160,37 @@ test("normalizeCodexRun reports spawn errors", () => {
   assert.equal(normalized.ok, false);
   assert.match(normalized.value.error, /codex not found/);
 });
+
+test("normalizeCodexRun reports a null JSONL event without throwing", () => {
+  const stdout = jsonl([null, { type: "turn.completed", usage: {} }]);
+  let normalized;
+
+  assert.doesNotThrow(() => {
+    normalized = normalizeCodexRun({ stdout, exitCode: 0 });
+  });
+  assert.equal(normalized.ok, false);
+  assert.match(normalized.value.error, /line 1/);
+});
+
+test("normalizeCodexRun treats null usage as empty usage", () => {
+  const stdout = jsonl([
+    {
+      type: "item.completed",
+      item: { type: "agent_message", text: "{}" },
+    },
+    { type: "turn.completed", usage: null },
+  ]);
+  let normalized;
+
+  assert.doesNotThrow(() => {
+    normalized = normalizeCodexRun({ stdout, exitCode: 0 });
+  });
+  assert.equal(normalized.ok, true);
+  assert.deepEqual(normalized.value.usage, {
+    input_tokens: 0,
+    cached_input_tokens: 0,
+    output_tokens: 0,
+    reasoning_output_tokens: 0,
+    total_tokens: 0,
+  });
+});
