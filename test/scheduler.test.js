@@ -32,7 +32,7 @@ test("default commands match the requested codex and claude invocations", () => 
       args: [
         "exec",
         "--model",
-        "gpt-5.5",
+        "gpt-5.6-sol",
         "--config",
         'model_reasoning_effort="none"',
         "--config",
