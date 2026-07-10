@@ -58,7 +58,7 @@ test("default commands match the requested codex and claude invocations", () => 
       command: "sh",
       args: [
         "-c",
-        'claude -p --bare --tools "" --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq \'{result, usage}\'',
+        'claude -p --bare --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq \'{result, usage}\'',
       ],
     },
   ]);

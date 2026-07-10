@@ -4,7 +4,7 @@ Small CLI that repeatedly runs two commands:
 
 ```bash
 codex exec --model gpt-5.6-sol --config 'model_reasoning_effort="none"' --config 'web_search="disabled"' --disable shell_tool --disable multi_agent --disable hooks --disable plugins --skip-git-repo-check --sandbox read-only --ignore-rules --ephemeral "{{arithmeticPrompt}}"
-claude -p --bare --tools "" --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq '{result, usage}'
+claude -p --bare --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq '{result, usage}'
 ```
 
 Each command has its own loop. A command starts, waits for that process to exit,
@@ -73,7 +73,7 @@ Edit `commands.json`:
     {
       "name": "claude",
       "command": "sh",
-      "args": ["-c", "claude -p --bare --tools \"\" --disable-slash-commands --strict-mcp-config --system-prompt \"\" --output-format json \"{{arithmeticPrompt}}\" | jq '{result, usage}'"]
+      "args": ["-c", "claude -p --bare --disable-slash-commands --strict-mcp-config --system-prompt \"\" --output-format json \"{{arithmeticPrompt}}\" | jq '{result, usage}'"]
     }
   ]
 }
