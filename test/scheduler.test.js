@@ -25,6 +25,129 @@ test("getJitteredDelayMs supports custom base delay and jitter", () => {
   assert.equal(getJitteredDelayMs({ ...options, random: () => 1 }), 320_000);
 });
 
+test("createTaskController stores Codex lastExecution and usage", () => {
+  let child;
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      now: () => 5000,
+      spawn: () => {
+        child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  child.stdout.emit(
+    "data",
+    Buffer.from(
+      '{"subtype":"success","is_error":false,"usage":{"input_tokens":10,',
+    ),
+  );
+  child.stdout.emit(
+    "data",
+    Buffer.from('"output_tokens":2,"total_tokens":12}}\n'),
+  );
+  child.emit("close", 0, null);
+
+  assert.equal(task.getState().lastExecution.status, "success");
+  assert.equal(task.getState().lastExecution.finishedAt, 5000);
+  assert.equal(task.getState().lastExecution.usage.totalTokens, 12);
+});
+
+test("createTaskController preserves lastExecution while the next run is running", () => {
+  const children = [];
+  const task = createTaskController(
+    { name: "claude", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        children.push(child);
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  children[0].stdout.emit(
+    "data",
+    Buffer.from(
+      '{"subtype":"success","is_error":false,"usage":{"output_tokens":3}}',
+    ),
+  );
+  children[0].emit("close", 0, null);
+  const previous = task.getState().lastExecution;
+
+  task.runNow();
+
+  assert.deepEqual(task.getState().lastExecution, previous);
+});
+
+test("createTaskController records requested stop as stopped", () => {
+  let child;
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        child = new EventEmitter();
+        child.pid = 123;
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      killProcess: () => {},
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  task.stop();
+  child.emit("close", 1, null);
+
+  assert.equal(task.getState().lastExecution.status, "stopped");
+  assert.equal(task.getState().lastExecution.signal, "SIGTERM");
+});
+
+test("createTaskController records start failures in lastExecution", () => {
+  const task = createTaskController(
+    { name: "codex", command: "missing", args: [] },
+    {
+      now: () => 99,
+      spawn: () => {
+        throw new Error("spawn denied");
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+
+  assert.equal(task.getState().lastExecution.status, "error");
+  assert.equal(task.getState().lastExecution.error, "spawn denied");
+  assert.equal(task.getState().lastExecution.finishedAt, 99);
+});
+
 test("default commands match the requested codex and claude invocations", () => {
   assert.deepEqual(DEFAULT_COMMANDS, [
     {
@@ -59,7 +182,7 @@ test("default commands match the requested codex and claude invocations", () => 
       command: "sh",
       args: [
         "-c",
-        'claude -p --bare --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq \'{result, usage}\'',
+        'claude -p --bare --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq -c \'{type, subtype, is_error, result, usage}\'',
       ],
     },
   ]);
