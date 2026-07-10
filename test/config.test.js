@@ -70,6 +70,29 @@ test('loadConfig reads schedule and commands from an object config file', () => 
   });
 });
 
+test('loadConfig resolves relative executable paths from the config directory', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-reply-config-'));
+  const configPath = path.join(directory, 'commands.json');
+
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      commands: [
+        {
+          name: 'wrapper',
+          command: './bin/wrapper.js',
+          args: ['exec'],
+        },
+      ],
+    }),
+  );
+
+  assert.equal(
+    loadConfig(configPath).commands[0].command,
+    path.join(directory, 'bin', 'wrapper.js'),
+  );
+});
+
 test('loadCommands validates command definitions', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-reply-config-'));
   const configPath = path.join(directory, 'commands.json');

@@ -6,7 +6,7 @@
   "commands": [
     {
       "name": "codex",
-      "command": "codex",
+      "command": "./bin/codex-json.js",
       "args": [
         "exec",
         "--model",

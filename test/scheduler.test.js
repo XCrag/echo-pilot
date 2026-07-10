@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -28,7 +29,7 @@ test("default commands match the requested codex and claude invocations", () => 
   assert.deepEqual(DEFAULT_COMMANDS, [
     {
       name: "codex",
-      command: "codex",
+      command: path.join(__dirname, "..", "bin", "codex-json.js"),
       args: [
         "exec",
         "--model",
