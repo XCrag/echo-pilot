@@ -55,14 +55,14 @@ function runCodexJson({
     if (finished) return;
     finished = true;
     const normalized = normalizeCodexRun({
-      stdout: stdoutChunks.join(""),
+      stdout: Buffer.concat(stdoutChunks).toString("utf8"),
       ...details,
     });
     stdout.write(`${JSON.stringify(normalized.value)}\n`);
     setExitCode(normalized.ok ? 0 : 1);
   }
 
-  child.stdout.on("data", (chunk) => stdoutChunks.push(String(chunk)));
+  child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
   child.stderr.on("data", (chunk) => stderr.write(chunk));
   child.once("error", (spawnError) => finish({ spawnError }));
   child.once("close", (exitCode, signal) => finish({ exitCode, signal }));

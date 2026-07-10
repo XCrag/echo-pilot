@@ -13,6 +13,14 @@ function jsonl(events) {
   return `${events.map((event) => JSON.stringify(event)).join("\n")}\n`;
 }
 
+function parseSingleJsonLine(chunks) {
+  assert.equal(chunks.length, 1);
+  const output = chunks[0];
+  const value = JSON.parse(output);
+  assert.equal(output, `${JSON.stringify(value)}\n`);
+  return value;
+}
+
 test("normalizeCodexRun combines the final structured message and usage", () => {
   const stdout = jsonl([
     { type: "thread.started", thread_id: "thread-1" },
@@ -226,6 +234,7 @@ test("runCodexJson emits one result JSON and forwards stderr", () => {
   const stdoutChunks = [];
   const stderrChunks = [];
   const exitCodes = [];
+  const stderrChunk = Buffer.from("model refresh warning\n");
 
   runCodexJson({
     args: ["exec", "prompt"],
@@ -235,11 +244,11 @@ test("runCodexJson emits one result JSON and forwards stderr", () => {
       return child;
     },
     stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
-    stderr: { write: (chunk) => stderrChunks.push(String(chunk)) },
+    stderr: { write: (chunk) => stderrChunks.push(chunk) },
     setExitCode: (code) => exitCodes.push(code),
   });
 
-  child.stderr.emit("data", Buffer.from("model refresh warning\n"));
+  child.stderr.emit("data", stderrChunk);
   child.stdout.emit("data", Buffer.from(jsonl([
     {
       type: "item.completed",
@@ -266,10 +275,52 @@ test("runCodexJson emits one result JSON and forwards stderr", () => {
     ],
     options: { stdio: ["ignore", "pipe", "pipe"] },
   }]);
-  assert.deepEqual(stderrChunks, ["model refresh warning\n"]);
-  assert.equal(stdoutChunks.length, 1);
-  assert.equal(JSON.parse(stdoutChunks[0]).usage.total_tokens, 24);
+  assert.equal(stderrChunks[0], stderrChunk);
+  assert.equal(parseSingleJsonLine(stdoutChunks).usage.total_tokens, 24);
   assert.deepEqual(exitCodes, [0]);
+});
+
+test("runCodexJson preserves UTF-8 split across stdout chunks", () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  const stdoutChunks = [];
+
+  runCodexJson({
+    args: ["exec", "prompt"],
+    spawn: () => child,
+    stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
+    stderr: { write: () => {} },
+    setExitCode: () => {},
+  });
+
+  const codexOutput = Buffer.from(jsonl([
+    {
+      type: "item.completed",
+      item: {
+        type: "agent_message",
+        text: JSON.stringify({
+          success: true,
+          answer: "2",
+          message: "计算完成",
+        }),
+      },
+    },
+    { type: "turn.completed", usage: {} },
+  ]));
+  const characterIndex = codexOutput.indexOf(Buffer.from("计"));
+  assert.notEqual(characterIndex, -1);
+  const splitIndex = characterIndex + 1;
+
+  child.stdout.emit("data", codexOutput.subarray(0, splitIndex));
+  child.stdout.emit("data", codexOutput.subarray(splitIndex));
+  child.emit("close", 0, null);
+
+  assert.deepEqual(parseSingleJsonLine(stdoutChunks).result, {
+    success: true,
+    answer: "2",
+    message: "计算完成",
+  });
 });
 
 test("runCodexJson normalizes synchronous spawn errors", () => {
@@ -287,8 +338,9 @@ test("runCodexJson normalizes synchronous spawn errors", () => {
   });
 
   assert.equal(child, null);
-  assert.equal(JSON.parse(stdoutChunks[0]).is_error, true);
-  assert.match(JSON.parse(stdoutChunks[0]).error, /spawn denied/);
+  const output = parseSingleJsonLine(stdoutChunks);
+  assert.equal(output.is_error, true);
+  assert.match(output.error, /spawn denied/);
   assert.deepEqual(exitCodes, [1]);
 });
 
@@ -310,7 +362,6 @@ test("runCodexJson emits one error result when the child fails", () => {
   child.emit("error", new Error("connection lost"));
   child.emit("close", 1, null);
 
-  assert.equal(stdoutChunks.length, 1);
-  assert.match(JSON.parse(stdoutChunks[0]).error, /connection lost/);
+  assert.match(parseSingleJsonLine(stdoutChunks).error, /connection lost/);
   assert.deepEqual(exitCodes, [1]);
 });
