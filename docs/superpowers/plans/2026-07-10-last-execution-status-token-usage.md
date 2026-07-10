@@ -596,12 +596,15 @@ Add controller state:
 
 ```js
 let requestedSignal = null;
+let runGeneration = 0;
 ```
 
 At the beginning of each new `runOnce`, after rejecting an existing child:
 
 ```js
 requestedSignal = null;
+const generation = ++runGeneration;
+let settled = false;
 ```
 
 Change output attachment to accept a run-local buffer:
@@ -631,6 +634,19 @@ if (runningChild === child) requestedSignal = signal;
 
 After spawning, create `const stdoutChunks = [];` and pass it to
 `attachOutputCapture`.
+
+The existing child handlers currently use `if (child !== runningChild) return`.
+Replace that guard in both `error` and `close` handlers with:
+
+```js
+if (settled || generation !== runGeneration) return;
+settled = true;
+```
+
+This deliberately allows a stopped child to report its close event after
+`stop()` clears `child`, but still ignores that old close after a newer run has
+incremented `runGeneration`. It also prevents an `error` followed by `close`
+from recording the same run twice.
 
 On synchronous or emitted start error, set:
 
