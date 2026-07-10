@@ -544,6 +544,102 @@ test("createTaskController kills a running child when stopped", () => {
   assert.equal(task.getState().status, "stopped");
 });
 
+test("createTaskController starts children in a detached process group", () => {
+  let spawnOptions = null;
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      spawn: (_command, _args, options) => {
+        const child = new EventEmitter();
+        child.kill = () => {};
+        spawnOptions = options;
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+
+  assert.equal(spawnOptions.detached, true);
+});
+
+test("createTaskController stops the whole process group for a running child", () => {
+  const killedGroups = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      spawn: () => {
+        const child = new EventEmitter();
+        child.pid = 1234;
+        child.killed = false;
+        child.kill = () => {
+          child.killed = true;
+        };
+        return child;
+      },
+      killProcess: (pid, signal) => {
+        killedGroups.push({ pid, signal });
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  task.stop();
+
+  assert.deepEqual(killedGroups, [{ pid: -1234, signal: "SIGTERM" }]);
+  assert.equal(task.getState().status, "stopped");
+});
+
+test("createTaskController ignores close from an old stopped child after restart", () => {
+  const spawned = [];
+
+  const task = createTaskController(
+    {
+      name: "sample",
+      command: "example",
+      args: [],
+    },
+    {
+      spawn: () => {
+        const child = new EventEmitter();
+        child.killed = false;
+        child.kill = () => {
+          child.killed = true;
+        };
+        spawned.push(child);
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  task.stop();
+  task.runNow();
+  spawned[0].emit("close", null, "SIGTERM");
+
+  assert.equal(spawned.length, 2);
+  assert.equal(task.getState().status, "running");
+});
+
 test("createTaskController captures stdout and stderr when captureOutput is enabled", () => {
   let spawnedChild = null;
   let spawnOptions = null;
