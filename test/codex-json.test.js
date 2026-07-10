@@ -1,7 +1,13 @@
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const path = require("node:path");
 const test = require("node:test");
 
 const { normalizeCodexRun } = require("../lib/codex-json");
+const {
+  buildCodexArgs,
+  runCodexJson,
+} = require("../bin/codex-json");
 
 function jsonl(events) {
   return `${events.map((event) => JSON.stringify(event)).join("\n")}\n`;
@@ -193,4 +199,118 @@ test("normalizeCodexRun treats null usage as empty usage", () => {
     reasoning_output_tokens: 0,
     total_tokens: 0,
   });
+});
+
+test("buildCodexArgs adds JSONL and schema flags after exec", () => {
+  const schemaPath = "/repo/schemas/arithmetic-result.schema.json";
+
+  assert.deepEqual(
+    buildCodexArgs(["exec", "--model", "gpt-test", "Calculate 1 + 1"], schemaPath),
+    [
+      "exec",
+      "--json",
+      "--output-schema",
+      schemaPath,
+      "--model",
+      "gpt-test",
+      "Calculate 1 + 1",
+    ],
+  );
+});
+
+test("runCodexJson emits one result JSON and forwards stderr", () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  const spawnCalls = [];
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const exitCodes = [];
+
+  runCodexJson({
+    args: ["exec", "prompt"],
+    schemaPath: "/repo/schema.json",
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return child;
+    },
+    stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
+    stderr: { write: (chunk) => stderrChunks.push(String(chunk)) },
+    setExitCode: (code) => exitCodes.push(code),
+  });
+
+  child.stderr.emit("data", Buffer.from("model refresh warning\n"));
+  child.stdout.emit("data", Buffer.from(jsonl([
+    {
+      type: "item.completed",
+      item: {
+        type: "agent_message",
+        text: '{"success":true,"answer":"2","message":"ok"}',
+      },
+    },
+    {
+      type: "turn.completed",
+      usage: { input_tokens: 20, output_tokens: 4 },
+    },
+  ])));
+  child.emit("close", 0, null);
+
+  assert.deepEqual(spawnCalls, [{
+    command: "codex",
+    args: [
+      "exec",
+      "--json",
+      "--output-schema",
+      "/repo/schema.json",
+      "prompt",
+    ],
+    options: { stdio: ["ignore", "pipe", "pipe"] },
+  }]);
+  assert.deepEqual(stderrChunks, ["model refresh warning\n"]);
+  assert.equal(stdoutChunks.length, 1);
+  assert.equal(JSON.parse(stdoutChunks[0]).usage.total_tokens, 24);
+  assert.deepEqual(exitCodes, [0]);
+});
+
+test("runCodexJson normalizes synchronous spawn errors", () => {
+  const stdoutChunks = [];
+  const exitCodes = [];
+
+  const child = runCodexJson({
+    args: ["exec", "prompt"],
+    spawn: () => {
+      throw new Error("spawn denied");
+    },
+    stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
+    stderr: { write: () => {} },
+    setExitCode: (code) => exitCodes.push(code),
+  });
+
+  assert.equal(child, null);
+  assert.equal(JSON.parse(stdoutChunks[0]).is_error, true);
+  assert.match(JSON.parse(stdoutChunks[0]).error, /spawn denied/);
+  assert.deepEqual(exitCodes, [1]);
+});
+
+test("runCodexJson emits one error result when the child fails", () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  const stdoutChunks = [];
+  const exitCodes = [];
+
+  runCodexJson({
+    args: ["exec", "prompt"],
+    spawn: () => child,
+    stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
+    stderr: { write: () => {} },
+    setExitCode: (code) => exitCodes.push(code),
+  });
+
+  child.emit("error", new Error("connection lost"));
+  child.emit("close", 1, null);
+
+  assert.equal(stdoutChunks.length, 1);
+  assert.match(JSON.parse(stdoutChunks[0]).error, /connection lost/);
+  assert.deepEqual(exitCodes, [1]);
 });
