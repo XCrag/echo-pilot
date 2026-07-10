@@ -3,7 +3,7 @@
 Small CLI that repeatedly runs two commands:
 
 ```bash
-codex exec --model gpt-5.6-sol --config 'model_reasoning_effort="none"' --config 'web_search="disabled"' --disable shell_tool --disable multi_agent --disable hooks --disable plugins --skip-git-repo-check --sandbox read-only --ignore-rules --ephemeral "{{arithmeticPrompt}}"
+./bin/codex-json.js exec --model gpt-5.6-sol --config 'model_reasoning_effort="none"' --config 'web_search="disabled"' --disable shell_tool --disable multi_agent --disable hooks --disable plugins --skip-git-repo-check --sandbox read-only --ignore-rules --ephemeral "{{arithmeticPrompt}}"
 claude -p --bare --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq '{result, usage}'
 ```
 
@@ -18,6 +18,34 @@ node bin/auto-reply.js
 ```
 
 Stop it with `Ctrl+C`.
+
+## Codex JSON Output
+
+`./bin/codex-json.js` writes exactly one normalized JSON object to stdout and
+forwards Codex diagnostics to stderr. A non-zero wrapper exit or a
+`turn.failed` event produces `subtype: "error"`; successful output has this
+shape:
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "result": {
+    "success": true,
+    "answer": "42",
+    "message": "Calculation completed"
+  },
+  "error": null,
+  "usage": {
+    "input_tokens": 970,
+    "cached_input_tokens": 0,
+    "output_tokens": 25,
+    "reasoning_output_tokens": 0,
+    "total_tokens": 995
+  }
+}
+```
 
 ## TUI
 
@@ -67,7 +95,7 @@ Edit `commands.json`:
   "commands": [
     {
       "name": "codex",
-      "command": "codex",
+      "command": "./bin/codex-json.js",
       "args": ["exec", "--model", "gpt-5.6-sol", "--config", "model_reasoning_effort=\"none\"", "--config", "web_search=\"disabled\"", "--disable", "shell_tool", "--disable", "multi_agent", "--disable", "hooks", "--disable", "plugins", "--skip-git-repo-check", "--sandbox", "read-only", "--ignore-rules", "--ephemeral", "{{arithmeticPrompt}}"]
     },
     {
