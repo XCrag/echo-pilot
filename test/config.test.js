@@ -93,6 +93,56 @@ test('loadConfig resolves relative executable paths from the config directory', 
   );
 });
 
+test('loadConfig resolves ../ executable paths from a parsed config', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-reply-config-'));
+  const configDirectory = path.join(directory, 'config');
+  const configPath = path.join(configDirectory, 'commands.json');
+  fs.mkdirSync(configDirectory);
+
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      commands: [
+        {
+          name: 'wrapper',
+          command: '../bin/wrapper.js',
+          args: ['exec'],
+        },
+      ],
+    }),
+  );
+
+  assert.equal(
+    loadConfig(configPath).commands[0].command,
+    path.join(directory, 'bin', 'wrapper.js'),
+  );
+});
+
+test('loadConfig resolves relative fallback commands from a missing config directory', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-reply-config-'));
+  const configDirectory = path.join(directory, 'config');
+  const configPath = path.join(configDirectory, 'missing.json');
+  const errors = [];
+
+  const config = loadConfig(configPath, {
+    fallbackCommands: [
+      {
+        name: 'wrapper',
+        command: './bin/wrapper.js',
+        args: ['exec'],
+      },
+    ],
+    logger: { error: (message) => errors.push(message) },
+  });
+
+  assert.equal(
+    config.commands[0].command,
+    path.join(configDirectory, 'bin', 'wrapper.js'),
+  );
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /Using built-in defaults/);
+});
+
 test('loadCommands validates command definitions', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-reply-config-'));
   const configPath = path.join(directory, 'commands.json');

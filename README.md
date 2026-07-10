@@ -22,9 +22,15 @@ Stop it with `Ctrl+C`.
 ## Codex JSON Output
 
 `./bin/codex-json.js` writes exactly one normalized JSON object to stdout and
-forwards Codex diagnostics to stderr. A non-zero wrapper exit or a
-`turn.failed` event produces `subtype: "error"`; successful output has this
-shape:
+forwards Codex diagnostics to stderr. The wrapper's `subtype`, `is_error`, and
+exit status describe Codex execution and output-normalization success. A
+non-zero Codex child exit, termination signal, `turn.failed` event, or
+normalization error produces `subtype: "error"` and a non-zero wrapper exit.
+
+`result.success` is separate task-level data defined by the arithmetic result
+schema. A valid `result.success: false` response can therefore coexist with
+`subtype: "success"`, `is_error: false`, and a zero wrapper exit. Successful
+execution and normalization have this shape:
 
 ```json
 {

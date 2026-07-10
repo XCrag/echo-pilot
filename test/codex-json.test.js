@@ -129,6 +129,39 @@ test("normalizeCodexRun rejects a non-zero child exit", () => {
   assert.match(normalized.value.error, /code 2/);
 });
 
+test("normalizeCodexRun reports a termination signal without a terminal event", () => {
+  const normalized = normalizeCodexRun({ stdout: "", signal: "SIGTERM" });
+
+  assert.equal(normalized.ok, false);
+  assert.equal(normalized.value.error, "Codex exited with signal SIGTERM");
+});
+
+test("normalizeCodexRun reports a termination signal over truncated JSONL", () => {
+  const normalized = normalizeCodexRun({
+    stdout: '{"type":"turn.started"',
+    signal: "SIGHUP",
+  });
+
+  assert.equal(normalized.ok, false);
+  assert.equal(normalized.value.error, "Codex exited with signal SIGHUP");
+});
+
+test("normalizeCodexRun prioritizes a termination signal and preserves usage", () => {
+  const stdout = jsonl([
+    {
+      type: "turn.failed",
+      error: { message: "turn interrupted" },
+      usage: { input_tokens: 12, output_tokens: 3 },
+    },
+  ]);
+
+  const normalized = normalizeCodexRun({ stdout, signal: "SIGINT" });
+
+  assert.equal(normalized.ok, false);
+  assert.equal(normalized.value.error, "Codex exited with signal SIGINT");
+  assert.equal(normalized.value.usage.total_tokens, 15);
+});
+
 test("normalizeCodexRun reports invalid JSONL", () => {
   const normalized = normalizeCodexRun({
     stdout: '{"type":"turn.started"}\nnot-json\n',
@@ -364,4 +397,158 @@ test("runCodexJson emits one error result when the child fails", () => {
 
   assert.match(parseSingleJsonLine(stdoutChunks).error, /connection lost/);
   assert.deepEqual(exitCodes, [1]);
+});
+
+test("runCodexJson forwards termination and waits for the child to close", () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killed = false;
+  const killSignals = [];
+  child.kill = (signal) => {
+    child.killed = true;
+    killSignals.push(signal);
+    return true;
+  };
+  const signalSource = new EventEmitter();
+  const stdoutChunks = [];
+  const exitCodes = [];
+  const timers = [];
+  const clearedTimers = [];
+
+  runCodexJson({
+    args: ["exec", "prompt"],
+    spawn: () => child,
+    stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
+    stderr: { write: () => {} },
+    setExitCode: (code) => exitCodes.push(code),
+    signalSource,
+    setTimeout: (callback, delay) => {
+      const timer = { callback, delay };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => clearedTimers.push(timer),
+    terminationGraceMs: 250,
+  });
+
+  child.stdout.emit("data", Buffer.from(jsonl([
+    {
+      type: "turn.completed",
+      usage: { input_tokens: 20, output_tokens: 4 },
+    },
+  ])));
+  signalSource.emit("SIGTERM");
+
+  assert.deepEqual(killSignals, ["SIGTERM"]);
+  assert.equal(stdoutChunks.length, 0);
+  assert.deepEqual(timers.map((timer) => timer.delay), [250]);
+
+  child.emit("close", 0, null);
+
+  const output = parseSingleJsonLine(stdoutChunks);
+  assert.equal(output.is_error, true);
+  assert.equal(output.error, "Codex exited with signal SIGTERM");
+  assert.equal(output.usage.total_tokens, 24);
+  assert.deepEqual(exitCodes, [1]);
+  assert.deepEqual(clearedTimers, [timers[0]]);
+  assert.equal(signalSource.listenerCount("SIGINT"), 0);
+  assert.equal(signalSource.listenerCount("SIGTERM"), 0);
+  assert.equal(signalSource.listenerCount("SIGHUP"), 0);
+});
+
+test("runCodexJson skips the fallback timer when signal forwarding closes the child", () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killed = false;
+  child.kill = (signal) => {
+    child.killed = true;
+    child.emit("close", null, signal);
+    return true;
+  };
+  const signalSource = new EventEmitter();
+  const stdoutChunks = [];
+  const exitCodes = [];
+  const timers = [];
+
+  runCodexJson({
+    args: ["exec", "prompt"],
+    spawn: () => child,
+    stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
+    stderr: { write: () => {} },
+    setExitCode: (code) => exitCodes.push(code),
+    signalSource,
+    setTimeout: (callback, delay) => {
+      timers.push({ callback, delay });
+    },
+    clearTimeout: () => {},
+  });
+
+  signalSource.emit("SIGINT");
+
+  assert.equal(parseSingleJsonLine(stdoutChunks).error, "Codex exited with signal SIGINT");
+  assert.deepEqual(exitCodes, [1]);
+  assert.equal(timers.length, 0);
+});
+
+test("runCodexJson falls back once when a terminated child never closes", () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  let stdoutDestroyed = false;
+  let stderrDestroyed = false;
+  let unrefCount = 0;
+  child.stdout.destroy = () => {
+    stdoutDestroyed = true;
+  };
+  child.stderr.destroy = () => {
+    stderrDestroyed = true;
+  };
+  child.unref = () => {
+    unrefCount += 1;
+  };
+  child.killed = false;
+  const killSignals = [];
+  child.kill = (signal) => {
+    child.killed = true;
+    killSignals.push(signal);
+    return true;
+  };
+  const signalSource = new EventEmitter();
+  const stdoutChunks = [];
+  const exitCodes = [];
+  const timers = [];
+
+  runCodexJson({
+    args: ["exec", "prompt"],
+    spawn: () => child,
+    stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
+    stderr: { write: () => {} },
+    setExitCode: (code) => exitCodes.push(code),
+    signalSource,
+    setTimeout: (callback, delay) => {
+      const timer = { callback, delay };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: () => {},
+    terminationGraceMs: 100,
+  });
+
+  signalSource.emit("SIGHUP");
+  signalSource.emit("SIGINT");
+  timers[0].callback();
+  child.emit("error", new Error("late child error"));
+  child.emit("close", null, "SIGHUP");
+
+  const output = parseSingleJsonLine(stdoutChunks);
+  assert.equal(output.is_error, true);
+  assert.equal(output.error, "Codex exited with signal SIGHUP");
+  assert.deepEqual(killSignals, ["SIGHUP", "SIGKILL"]);
+  assert.deepEqual(exitCodes, [1]);
+  assert.equal(timers.length, 1);
+  assert.equal(stdoutDestroyed, true);
+  assert.equal(stderrDestroyed, true);
+  assert.equal(unrefCount, 1);
 });
