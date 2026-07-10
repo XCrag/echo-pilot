@@ -2,13 +2,26 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
-const { formatRemainingTime, renderDashboard, startTui } = require('../lib/tui');
+const {
+  formatRemainingTime,
+  formatTokenCount,
+  renderDashboard,
+  startTui,
+} = require('../lib/tui');
 
 test('formatRemainingTime formats positive and expired times', () => {
   assert.equal(formatRemainingTime(0), '0s');
   assert.equal(formatRemainingTime(-1_000), '0s');
   assert.equal(formatRemainingTime(59_000), '59s');
   assert.equal(formatRemainingTime(61_000), '1m 1s');
+});
+
+test('formatTokenCount formats exact, kilo, and mega token values', () => {
+  assert.equal(formatTokenCount(0), '0t');
+  assert.equal(formatTokenCount(999), '999t');
+  assert.equal(formatTokenCount(1_000), '1.0kt');
+  assert.equal(formatTokenCount(1_700), '1.7kt');
+  assert.equal(formatTokenCount(1_000_000), '1.0Mt');
 });
 
 function sampleTasks() {
@@ -35,6 +48,23 @@ function sampleTasks() {
       lastExitCode: 0,
       lastSignal: null,
       lastError: null,
+      lastExecution: {
+        status: 'success',
+        finishedAt: 1000,
+        exitCode: 0,
+        signal: null,
+        error: null,
+        usage: {
+          kind: 'claude',
+          inputTokens: 2,
+          cachedInputTokens: 0,
+          cacheCreationInputTokens: 1561,
+          cacheReadInputTokens: 0,
+          outputTokens: 136,
+          reasoningOutputTokens: 0,
+          totalTokens: 1699,
+        },
+      },
       outputLines: ['[stdout] {"result":"42"}', '[stdout] {"usage":{"input_tokens":12}}'],
     },
   ];
@@ -53,12 +83,63 @@ test('renderDashboard list mode shows task status without selected output', () =
   assert.match(output, /│ ↑\/↓ select · enter detail · s start · x stop · r once · l loop · q quit/);
   assert.match(output, /│ Task\s+│ Status\s+│ Mode\s+│ Next Run\s+│ Last\s+│ Sel │/);
   assert.match(output, /│ codex\s+│ RUNNING\s+│ LOOP\s+│ -\s+│ -\s+│\s+│/);
-  assert.match(output, /│ claude\s+│ WAITING\s+│ TIMER\s+│ 2m 0s\s+│ exit=0\s+│ ◀\s+│/);
+  assert.match(output, /│ claude\s+│ WAITING\s+│ TIMER\s+│ 2m 0s\s+│ OK · 1\.7kt\s+│ ◀\s+│/);
   assert.match(output, /Recent Logs/);
-  assert.match(output, /exit=0/);
+  assert.match(output, /OK · 1\.7kt/);
   assert.match(output, /\[claude\] next run in 120s/);
   assert.doesNotMatch(output, /Selected Output/);
   assert.doesNotMatch(output, /\[stdout\] \{"result":"42"\}/);
+});
+
+test('renderDashboard list mode summarizes error and stopped executions', () => {
+  const tasks = [
+    {
+      name: 'codex',
+      status: 'waiting',
+      mode: 'timer',
+      command: 'codex',
+      args: [],
+      nextRunAt: null,
+      lastExecution: {
+        status: 'error',
+        exitCode: 1,
+        signal: null,
+        error: null,
+        usage: null,
+      },
+      outputLines: [],
+    },
+    {
+      name: 'claude',
+      status: 'stopped',
+      mode: 'idle',
+      command: 'claude',
+      args: [],
+      nextRunAt: null,
+      lastExecution: {
+        status: 'stopped',
+        exitCode: 1,
+        signal: 'SIGTERM',
+        error: null,
+        usage: {
+          kind: 'claude',
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          outputTokens: 0,
+          reasoningOutputTokens: 0,
+          totalTokens: 0,
+        },
+      },
+      outputLines: [],
+    },
+  ];
+
+  const output = renderDashboard(tasks, { now: 1000, mode: 'list' });
+
+  assert.match(output, /codex.*ERR · -/);
+  assert.match(output, /claude.*STOP · 0t/);
 });
 
 test('renderDashboard detail mode shows selected task command and output', () => {
@@ -73,12 +154,47 @@ test('renderDashboard detail mode shows selected task command and output', () =>
   assert.match(output, /Status:\s+WAITING/);
   assert.match(output, /Mode:\s+TIMER/);
   assert.match(output, /Next Run:\s+2m 0s/);
-  assert.match(output, /Last:\s+exit=0/);
+  assert.match(output, /Last:\s+OK · exit=0/);
   assert.match(output, /Selected Command/);
   assert.match(output, /sh -c claude \.\.\./);
+  assert.match(output, /Last Token Usage/);
+  assert.match(output, /Total 1,699 · Input 2 · Output 136/);
+  assert.match(output, /Cache create 1,561 · Cache read 0/);
   assert.match(output, /Selected Output/);
   assert.match(output, /\[stdout\] \{"result":"42"\}/);
   assert.match(output, /esc back · x stop · r run once · l loop · s start\/resume · q quit/);
+});
+
+test('renderDashboard detail mode shows Codex token breakdown', () => {
+  const tasks = sampleTasks();
+  tasks[0].lastExecution = {
+    status: 'success',
+    finishedAt: 1000,
+    exitCode: 0,
+    signal: null,
+    error: null,
+    usage: {
+      kind: 'codex',
+      inputTokens: 970,
+      cachedInputTokens: 100,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      outputTokens: 25,
+      reasoningOutputTokens: 5,
+      totalTokens: 995,
+    },
+  };
+
+  const output = renderDashboard(tasks, {
+    selectedIndex: 0,
+    now: 1000,
+    mode: 'detail',
+  });
+
+  assert.match(output, /Last:\s+OK · exit=0/);
+  assert.match(output, /Last Token Usage/);
+  assert.match(output, /Total 995 · Input 970 · Output 25/);
+  assert.match(output, /Cached 100 · Reasoning 5/);
 });
 
 test('renderDashboard detail mode limits output to terminal height', () => {
