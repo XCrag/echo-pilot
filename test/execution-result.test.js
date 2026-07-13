@@ -159,3 +159,82 @@ test("invalid and negative token counters normalize to zero", () => {
 
   assert.equal(result.usage.totalTokens, 2);
 });
+
+test("Claude cache counters infer Claude usage for an unknown provider", () => {
+  const result = normalizeLastExecution({
+    provider: "custom",
+    stdout: JSON.stringify({
+      usage: {
+        input_tokens: 2,
+        cache_creation_input_tokens: 3,
+        cache_read_input_tokens: 4,
+        output_tokens: 5,
+      },
+    }),
+    exitCode: 0,
+  });
+
+  assert.equal(result.usage.kind, "claude");
+  assert.equal(result.usage.totalTokens, 14);
+});
+
+test("unknown providers fall back to Codex usage", () => {
+  const result = normalizeLastExecution({
+    provider: "custom",
+    stdout: JSON.stringify({
+      usage: {
+        input_tokens: 7,
+        output_tokens: 3,
+      },
+    }),
+    exitCode: 0,
+  });
+
+  assert.equal(result.usage.kind, "codex");
+  assert.equal(result.usage.totalTokens, 10);
+});
+
+test("a supplied Codex total_tokens value of zero is preserved", () => {
+  const result = normalizeLastExecution({
+    provider: "codex",
+    stdout: JSON.stringify({
+      usage: {
+        input_tokens: 7,
+        output_tokens: 3,
+        total_tokens: 0,
+      },
+    }),
+    exitCode: 0,
+  });
+
+  assert.equal(result.usage.totalTokens, 0);
+});
+
+test("raw string errors are retained", () => {
+  const result = normalizeLastExecution({
+    provider: "codex",
+    error: "connection refused",
+  });
+
+  assert.equal(result.status, "error");
+  assert.equal(result.error, "connection refused");
+});
+
+test("normalization does not mutate its input", () => {
+  const input = {
+    provider: "codex",
+    stdout: JSON.stringify({
+      subtype: "success",
+      usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 },
+    }),
+    exitCode: 0,
+    signal: null,
+    error: null,
+    finishedAt: 123,
+  };
+  const before = structuredClone(input);
+
+  normalizeLastExecution(input);
+
+  assert.deepEqual(input, before);
+});

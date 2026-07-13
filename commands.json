@@ -33,10 +33,17 @@
     },
     {
       "name": "claude",
-      "command": "sh",
+      "command": "./bin/claude-json.js",
       "args": [
-        "-c",
-        "claude -p --bare --disable-slash-commands --strict-mcp-config --system-prompt \"\" --output-format json \"{{arithmeticPrompt}}\" | jq -c '{type, subtype, is_error, result, usage}'"
+        "-p",
+        "--bare",
+        "--disable-slash-commands",
+        "--strict-mcp-config",
+        "--system-prompt",
+        "",
+        "--output-format",
+        "json",
+        "{{arithmeticPrompt}}"
       ]
     }
   ]

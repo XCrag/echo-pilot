@@ -154,3 +154,26 @@ test('loadCommands validates command definitions', () => {
     /commands\[0\]\.args must be an array/,
   );
 });
+
+test('repository config invokes Claude through the direct JSON wrapper', () => {
+  const configPath = path.join(__dirname, '..', 'commands.json');
+  const claude = loadConfig(configPath).commands.find(
+    (commandSpec) => commandSpec.name === 'claude',
+  );
+
+  assert.deepEqual(claude, {
+    name: 'claude',
+    command: path.join(__dirname, '..', 'bin', 'claude-json.js'),
+    args: [
+      '-p',
+      '--bare',
+      '--disable-slash-commands',
+      '--strict-mcp-config',
+      '--system-prompt',
+      '',
+      '--output-format',
+      'json',
+      '{{arithmeticPrompt}}',
+    ],
+  });
+});

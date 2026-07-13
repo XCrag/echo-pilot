@@ -378,10 +378,17 @@ test("default commands match the requested codex and claude invocations", () => 
     },
     {
       name: "claude",
-      command: "sh",
+      command: path.join(__dirname, "..", "bin", "claude-json.js"),
       args: [
-        "-c",
-        'claude -p --bare --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}" | jq -c \'{type, subtype, is_error, result, usage}\'',
+        "-p",
+        "--bare",
+        "--disable-slash-commands",
+        "--strict-mcp-config",
+        "--system-prompt",
+        "",
+        "--output-format",
+        "json",
+        "{{arithmeticPrompt}}",
       ],
     },
   ]);
@@ -961,6 +968,139 @@ test("createTaskController ignores close from an old stopped child after restart
 
   assert.equal(spawned.length, 2);
   assert.equal(task.getState().status, "running");
+});
+
+test("createTaskController ignores stale stdout after restart", () => {
+  const children = [];
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        children.push(child);
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  task.stop();
+  task.runNow();
+  children[0].stdout.emit(
+    "data",
+    Buffer.from('{"usage":{"total_tokens":999}}\n'),
+  );
+  children[1].stdout.emit(
+    "data",
+    Buffer.from('{"usage":{"total_tokens":5}}\n'),
+  );
+  children[1].emit("close", 0, null);
+
+  assert.deepEqual(task.getState().outputLines, [
+    '[stdout] {"usage":{"total_tokens":5}}',
+  ]);
+  assert.equal(task.getState().lastExecution.usage.totalTokens, 5);
+});
+
+test("createTaskController ignores stale stderr after restart", () => {
+  const children = [];
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        children.push(child);
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.start();
+  task.stop();
+  task.runNow();
+  children[0].stderr.emit("data", Buffer.from("old warning\n"));
+  children[1].stderr.emit("data", Buffer.from("current warning\n"));
+
+  assert.deepEqual(task.getState().outputLines, [
+    "[stderr] current warning",
+  ]);
+});
+
+test("createTaskController parses structured stdout at the byte ceiling", () => {
+  let child;
+  const output = Buffer.from('{"usage":{"total_tokens":11}}');
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      maxStructuredOutputBytes: output.length,
+      spawn: () => {
+        child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  child.stdout.emit("data", output);
+  child.emit("close", 0, null);
+
+  assert.equal(task.getState().lastExecution.usage.totalTokens, 11);
+});
+
+test("createTaskController drops oversized structured stdout but keeps bounded output lines", () => {
+  let child;
+  const output = Buffer.from('{"usage":{"total_tokens":12}}');
+  const task = createTaskController(
+    { name: "codex", command: "example", args: [] },
+    {
+      captureOutput: true,
+      maxOutputLines: 2,
+      maxStructuredOutputBytes: output.length - 1,
+      spawn: () => {
+        child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  child.stderr.emit("data", Buffer.from("first\nsecond\n"));
+  child.stdout.emit("data", output);
+  child.emit("close", 0, null);
+
+  assert.equal(task.getState().lastExecution.status, "success");
+  assert.equal(task.getState().lastExecution.usage, null);
+  assert.deepEqual(task.getState().outputLines, [
+    "[stderr] second",
+    '[stdout] {"usage":{"total_tokens":12}}',
+  ]);
 });
 
 test("createTaskController captures stdout and stderr when captureOutput is enabled", () => {
