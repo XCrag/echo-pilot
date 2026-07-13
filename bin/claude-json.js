@@ -2,6 +2,8 @@
 
 const { spawn: defaultSpawn } = require("node:child_process");
 
+const DEFAULT_MAX_STRUCTURED_OUTPUT_BYTES = 1024 * 1024;
+
 function projectClaudeResult(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Claude output is not a valid JSON object");
@@ -24,40 +26,60 @@ function runClaudeJson({
   setExitCode = (code) => {
     process.exitCode = code;
   },
+  propagateSignal = (signal) => process.kill(process.pid, signal),
+  maxStructuredOutputBytes = DEFAULT_MAX_STRUCTURED_OUTPUT_BYTES,
 } = {}) {
-  const stdoutChunks = [];
+  const structuredCapture = {
+    chunks: [],
+    byteLength: 0,
+    enabled: true,
+  };
   let finished = false;
+  let finishing = false;
 
-  function fail(code, message) {
-    if (finished) return;
+  function fail(code, signal, message) {
+    if (finished || finishing) return;
     finished = true;
     if (message) stderr.write(`${message}\n`);
-    setExitCode(code && code !== 0 ? code : 1);
+    if (signal) {
+      propagateSignal(signal);
+    } else {
+      setExitCode(code && code !== 0 ? code : 1);
+    }
   }
 
   function finish(exitCode, signal) {
-    if (finished) return;
-    if (signal) {
-      fail(1, `Claude exited with signal ${signal}`);
-      return;
-    }
-    if (exitCode !== 0) {
-      fail(exitCode, `Claude exited with code ${exitCode}`);
-      return;
-    }
+    if (finished || finishing) return;
 
     let outerResult;
     try {
-      outerResult = JSON.parse(Buffer.concat(stdoutChunks).toString("utf8"));
+      if (!structuredCapture.enabled) {
+        throw new Error("structured stdout byte ceiling exceeded");
+      }
+      outerResult = JSON.parse(
+        Buffer.concat(structuredCapture.chunks).toString("utf8"),
+      );
       outerResult = projectClaudeResult(outerResult);
     } catch (error) {
-      fail(1, `Claude output is not valid JSON: ${error.message}`);
+      fail(
+        exitCode && exitCode !== 0 ? exitCode : 1,
+        signal,
+        `Claude output is not valid JSON: ${error.message}`,
+      );
       return;
     }
 
-    finished = true;
-    stdout.write(`${JSON.stringify(outerResult)}\n`);
-    setExitCode(0);
+    finishing = true;
+    stdout.write(`${JSON.stringify(outerResult)}\n`, () => {
+      if (finished) return;
+      finished = true;
+      finishing = false;
+      if (signal) {
+        propagateSignal(signal);
+      } else {
+        setExitCode(exitCode && exitCode !== 0 ? exitCode : 0);
+      }
+    });
   }
 
   let child;
@@ -66,18 +88,28 @@ function runClaudeJson({
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
-    fail(1, `Claude failed to start: ${error.message}`);
+    fail(1, null, `Claude failed to start: ${error.message}`);
     return null;
   }
 
   child.stdout.on("data", (chunk) => {
-    stdoutChunks.push(
-      Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)),
-    );
+    if (!structuredCapture.enabled || finished || finishing) return;
+    const buffer = Buffer.isBuffer(chunk)
+      ? chunk
+      : Buffer.from(String(chunk));
+    const nextByteLength = structuredCapture.byteLength + buffer.length;
+    if (nextByteLength <= maxStructuredOutputBytes) {
+      structuredCapture.chunks.push(buffer);
+      structuredCapture.byteLength = nextByteLength;
+    } else {
+      structuredCapture.chunks.length = 0;
+      structuredCapture.byteLength = 0;
+      structuredCapture.enabled = false;
+    }
   });
   child.stderr.on("data", (chunk) => stderr.write(chunk));
   child.once("error", (error) => {
-    fail(1, `Claude failed to start: ${error.message}`);
+    fail(1, null, `Claude failed to start: ${error.message}`);
   });
   child.once("close", finish);
 
@@ -89,6 +121,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  DEFAULT_MAX_STRUCTURED_OUTPUT_BYTES,
   projectClaudeResult,
   runClaudeJson,
 };

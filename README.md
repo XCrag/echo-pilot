@@ -57,10 +57,12 @@ execution and normalization have this shape:
 
 `./bin/claude-json.js` invokes Claude directly with the configured arguments,
 forwards diagnostics to stderr, and writes one compact outer result containing
-`type`, `subtype`, `is_error`, `result`, and `usage`. A Claude child failure,
-spawn failure, or invalid outer JSON leaves stdout empty and produces a
-non-zero wrapper exit, so scheduler status cannot be masked by a downstream
-pipeline command.
+`type`, `subtype`, `is_error`, `result`, and `usage`. Complete valid outer JSON
+is retained even when Claude exits non-zero or by signal, allowing the
+scheduler to preserve error usage. The wrapper still preserves the child's
+non-zero code or signal after stdout finishes writing. Spawn failure and
+missing, invalid, or oversized outer JSON leave stdout empty and fail through
+the same process boundary, so status cannot be masked by a downstream command.
 
 ## TUI
 

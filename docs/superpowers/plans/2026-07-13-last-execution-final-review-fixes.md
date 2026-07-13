@@ -4,7 +4,7 @@
 
 **Goal:** Close the final-review correctness and robustness gaps in Claude result transport, scheduler output ownership, bounded structured capture, and execution-result normalization tests.
 
-**Architecture:** Replace the shell pipeline with an executable CommonJS wrapper that owns the Claude child lifecycle and projects valid outer JSON. Make scheduler stream listeners generation-aware and keep per-run structured capture under a configurable byte ceiling. Lock the pure normalizer's existing edge-case behavior with regression tests.
+**Architecture:** Replace the shell pipeline with an executable CommonJS wrapper that owns the Claude child lifecycle, bounds capture, and projects complete valid outer JSON before preserving any child code or signal. Make scheduler stream listeners generation-aware and keep per-run structured capture under a configurable byte ceiling. Lock the pure normalizer's existing edge-case behavior with regression tests.
 
 **Tech Stack:** Node.js CommonJS, `node:child_process`, `node:events`, `node:test`; no third-party dependencies.
 
@@ -16,7 +16,7 @@
 - Default raw structured stdout ceiling: 1 MiB; selected-output lines remain independently bounded.
 - Preserve scheduling and TUI layout behavior.
 - Use tests first and capture RED/GREEN evidence.
-- Commit all implementation, tests, documentation, plan, and final report on current `main`.
+- Commit all implementation, tests, documentation, and the durable plan on current `main`; retain the ignored final report as external evidence.
 
 ---
 
@@ -32,14 +32,28 @@
 - Modify: `README.md`
 
 **Interfaces:**
-- Produces: `runClaudeJson({ args, spawn, stdout, stderr, setExitCode })`.
-- Produces: one compact JSON line with `{type, subtype, is_error, result, usage}` only after a zero child exit and valid outer JSON object.
-- Preserves: child stderr bytes and non-zero status for spawn, child-exit, and invalid-JSON failures.
+- Produces: `runClaudeJson({ args, spawn, stdout, stderr, setExitCode, propagateSignal, maxStructuredOutputBytes })`.
+- Produces: one compact JSON line with `{type, subtype, is_error, result, usage}` whenever Claude emits a complete valid outer JSON object, including non-zero and signaled exits.
+- Preserves: child stderr bytes, child non-zero code, and child signal after any valid structured stdout finishes writing.
+- Bounds: raw wrapper stdout at an injectable 1 MiB default; overflow clears capture and fails without structured stdout.
 
 - [ ] Write wrapper and command/config regression tests for direct argv, compact projection, stderr forwarding, split UTF-8, invalid JSON, child non-zero, synchronous/asynchronous spawn errors, and exactly-once settlement.
 - [ ] Run `node --test test/claude-json.test.js test/scheduler.test.js test/config.test.js` and verify failures identify the missing wrapper and old shell configuration.
 - [ ] Implement the minimal executable wrapper and route built-in/configured Claude commands to it with separate direct arguments.
 - [ ] Update README command and configuration examples, then rerun the focused tests to GREEN.
+
+### Task 1A: Re-review transport semantics
+
+**Files:**
+- Modify: `bin/claude-json.js`
+- Modify: `test/claude-json.test.js`
+- Modify: `test/scheduler.test.js`
+- Modify: `README.md`
+
+- [ ] Add failing wrapper tests for non-zero valid usage, deferred-write signal propagation, invalid/missing-output signal propagation, exact byte boundary, and overflow.
+- [ ] Add scheduler-boundary tests proving non-zero results retain error usage and signaled results retain stopped usage.
+- [ ] Parse/project complete output before branching on status, settle only after the stdout callback, propagate the original signal through an injectable function, and bound wrapper capture.
+- [ ] Rerun focused and complete verification, then remove the ignored evidence report from tracked files while retaining it externally.
 
 ### Task 2: Scheduler generation-owned, bounded capture
 
@@ -73,13 +87,13 @@
 
 ### Task 4: Verification, self-review, report, and commit
 
-**Files:**
-- Create: `.superpowers/sdd/final-fix-report.md`
+**Evidence:**
+- Keep externally and ignore: `.superpowers/sdd/final-fix-report.md`
 
 - [ ] Run focused wrapper, scheduler, and normalizer tests.
 - [ ] Run `npm test`, `git diff --check`, and JSON parse checks for `package.json`, `commands.json`, and the schema.
 - [ ] Review the diff requirement-by-requirement, inspect executable mode, and record concerns.
-- [ ] Write the report with RED/GREEN evidence, exact commands/results, changed files, and self-review.
+- [ ] Update the ignored report with RED/GREEN evidence, exact commands/results, changed files, and self-review.
 - [ ] Stage all scoped files, commit once with an accurate subject, then confirm clean `git status --short`.
 
 ## Self-Review

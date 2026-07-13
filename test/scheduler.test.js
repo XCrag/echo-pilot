@@ -63,6 +63,83 @@ test("createTaskController stores Codex lastExecution and usage", () => {
   assert.equal(task.getState().lastExecution.usage.totalTokens, 12);
 });
 
+test("createTaskController retains Claude usage from a non-zero wrapper exit", () => {
+  let child;
+  const task = createTaskController(
+    { name: "claude", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  child.stdout.emit("data", Buffer.from(JSON.stringify({
+    type: "result",
+    subtype: "error",
+    is_error: true,
+    result: "request failed",
+    usage: {
+      input_tokens: 2,
+      cache_creation_input_tokens: 10,
+      cache_read_input_tokens: 3,
+      output_tokens: 4,
+    },
+  })));
+  child.emit("close", 7, null);
+
+  assert.equal(task.getState().lastExecution.status, "error");
+  assert.equal(task.getState().lastExecution.usage.totalTokens, 19);
+});
+
+test("createTaskController retains Claude usage from a signaled wrapper", () => {
+  let child;
+  const task = createTaskController(
+    { name: "claude", command: "example", args: [] },
+    {
+      captureOutput: true,
+      spawn: () => {
+        child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        return child;
+      },
+      setTimeout: () => ({ id: 1 }),
+      clearTimeout: () => {},
+      logger: { log: () => {}, error: () => {} },
+    },
+  );
+
+  task.runNow();
+  child.stdout.emit("data", Buffer.from(JSON.stringify({
+    type: "result",
+    subtype: "error",
+    is_error: true,
+    result: "interrupted",
+    usage: {
+      input_tokens: 2,
+      cache_creation_input_tokens: 10,
+      cache_read_input_tokens: 3,
+      output_tokens: 4,
+    },
+  })));
+  child.emit("close", null, "SIGTERM");
+
+  assert.equal(task.getState().lastExecution.status, "stopped");
+  assert.equal(task.getState().lastExecution.signal, "SIGTERM");
+  assert.equal(task.getState().lastExecution.usage.totalTokens, 19);
+});
+
 test("createTaskController preserves lastExecution while the next run is running", () => {
   const children = [];
   const task = createTaskController(

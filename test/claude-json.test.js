@@ -2,7 +2,10 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const test = require("node:test");
 
-const { runClaudeJson } = require("../bin/claude-json");
+const {
+  DEFAULT_MAX_STRUCTURED_OUTPUT_BYTES,
+  runClaudeJson,
+} = require("../bin/claude-json");
 
 function createChild() {
   const child = new EventEmitter();
@@ -15,8 +18,10 @@ function createHarness(options = {}) {
   const child = options.child || createChild();
   const spawnCalls = [];
   const stdoutChunks = [];
+  const stdoutCallbacks = [];
   const stderrChunks = [];
   const exitCodes = [];
+  const propagatedSignals = [];
 
   const returnedChild = runClaudeJson({
     args: options.args || ["-p", "prompt"],
@@ -24,9 +29,20 @@ function createHarness(options = {}) {
       spawnCalls.push({ command, args, options: spawnOptions });
       return child;
     }),
-    stdout: { write: (chunk) => stdoutChunks.push(String(chunk)) },
+    stdout: {
+      write: (chunk, callback) => {
+        stdoutChunks.push(String(chunk));
+        if (options.deferStdoutCallback) {
+          stdoutCallbacks.push(callback);
+        } else if (callback) {
+          callback();
+        }
+      },
+    },
     stderr: { write: (chunk) => stderrChunks.push(chunk) },
     setExitCode: (code) => exitCodes.push(code),
+    propagateSignal: (signal) => propagatedSignals.push(signal),
+    maxStructuredOutputBytes: options.maxStructuredOutputBytes,
   });
 
   return {
@@ -35,6 +51,8 @@ function createHarness(options = {}) {
     returnedChild,
     spawnCalls,
     stderrChunks,
+    propagatedSignals,
+    stdoutCallbacks,
     stdoutChunks,
   };
 }
@@ -113,6 +131,72 @@ test("runClaudeJson preserves a non-zero child exit with no stdout", () => {
   assert.deepEqual(harness.exitCodes, [7]);
 });
 
+test("runClaudeJson emits valid structured usage before preserving a non-zero exit", () => {
+  const harness = createHarness();
+
+  harness.child.stdout.emit("data", Buffer.from(JSON.stringify({
+    type: "result",
+    subtype: "error",
+    is_error: true,
+    result: "request failed",
+    usage: { input_tokens: 20, output_tokens: 4 },
+  })));
+  harness.child.emit("close", 7, null);
+
+  assert.deepEqual(parseSingleCompactLine(harness.stdoutChunks).usage, {
+    input_tokens: 20,
+    output_tokens: 4,
+  });
+  assert.deepEqual(harness.exitCodes, [7]);
+});
+
+test("runClaudeJson flushes valid structured usage before propagating a child signal", () => {
+  const harness = createHarness({ deferStdoutCallback: true });
+
+  harness.child.stdout.emit("data", Buffer.from(JSON.stringify({
+    type: "result",
+    subtype: "error",
+    is_error: true,
+    result: "interrupted",
+    usage: { input_tokens: 30, output_tokens: 5 },
+  })));
+  harness.child.emit("close", null, "SIGTERM");
+
+  assert.deepEqual(parseSingleCompactLine(harness.stdoutChunks).usage, {
+    input_tokens: 30,
+    output_tokens: 5,
+  });
+  assert.deepEqual(harness.propagatedSignals, []);
+  assert.deepEqual(harness.exitCodes, []);
+
+  harness.stdoutCallbacks[0]();
+
+  assert.deepEqual(harness.propagatedSignals, ["SIGTERM"]);
+  assert.deepEqual(harness.exitCodes, []);
+});
+
+test("runClaudeJson propagates a child signal when stdout is missing", () => {
+  const harness = createHarness();
+
+  harness.child.emit("close", null, "SIGHUP");
+
+  assert.deepEqual(harness.stdoutChunks, []);
+  assert.deepEqual(harness.propagatedSignals, ["SIGHUP"]);
+  assert.deepEqual(harness.exitCodes, []);
+});
+
+test("runClaudeJson propagates a child signal when stdout is invalid", () => {
+  const harness = createHarness();
+
+  harness.child.stdout.emit("data", Buffer.from("not-json"));
+  harness.child.emit("close", null, "SIGINT");
+
+  assert.deepEqual(harness.stdoutChunks, []);
+  assert.deepEqual(harness.propagatedSignals, ["SIGINT"]);
+  assert.deepEqual(harness.exitCodes, []);
+  assert.match(String(harness.stderrChunks.at(-1)), /valid JSON/i);
+});
+
 test("runClaudeJson rejects invalid outer JSON", () => {
   const harness = createHarness();
 
@@ -141,6 +225,49 @@ test("runClaudeJson preserves UTF-8 split across stdout chunks", () => {
 
   assert.equal(parseSingleCompactLine(harness.stdoutChunks).result, "计算完成");
   assert.deepEqual(harness.exitCodes, [0]);
+});
+
+test("runClaudeJson accepts structured stdout exactly at the byte ceiling", () => {
+  const output = Buffer.from(JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: "2",
+    usage: {},
+  }));
+  const harness = createHarness({
+    maxStructuredOutputBytes: output.length,
+  });
+
+  harness.child.stdout.emit("data", output);
+  harness.child.emit("close", 0, null);
+
+  assert.equal(parseSingleCompactLine(harness.stdoutChunks).result, "2");
+  assert.deepEqual(harness.exitCodes, [0]);
+});
+
+test("runClaudeJson defaults its structured stdout ceiling to 1 MiB", () => {
+  assert.equal(DEFAULT_MAX_STRUCTURED_OUTPUT_BYTES, 1024 * 1024);
+});
+
+test("runClaudeJson drops structured stdout after the byte ceiling is exceeded", () => {
+  const output = Buffer.from(JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: "2",
+    usage: {},
+  }));
+  const harness = createHarness({
+    maxStructuredOutputBytes: output.length - 1,
+  });
+
+  harness.child.stdout.emit("data", output);
+  harness.child.emit("close", 0, null);
+
+  assert.deepEqual(harness.stdoutChunks, []);
+  assert.deepEqual(harness.exitCodes, [1]);
+  assert.match(String(harness.stderrChunks.at(-1)), /valid JSON/i);
 });
 
 test("runClaudeJson preserves synchronous spawn failure", () => {
