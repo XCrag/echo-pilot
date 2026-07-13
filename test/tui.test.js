@@ -24,6 +24,29 @@ test('formatTokenCount formats exact, kilo, and mega token values', () => {
   assert.equal(formatTokenCount(1_000_000), '1.0Mt');
 });
 
+test('formatTokenCount keeps large totals within compact summaries', () => {
+  const tokenCount = formatTokenCount(100_000_000_000);
+
+  assert.ok(tokenCount.length <= 7, `expected at most 7 characters, got ${tokenCount}`);
+  assert.match(tokenCount, /Mt$/);
+
+  const tasks = sampleTasks();
+  tasks[1].lastExecution.usage.totalTokens = 100_000_000_000;
+  const output = renderDashboard(tasks, { selectedIndex: 1, now: 1_000, mode: 'list' });
+
+  assert.match(output, /OK · [^│]*Mt\s+│/);
+  assert.doesNotMatch(output, /OK · [^│]*…/);
+});
+
+test('formatTokenCount rejects invalid values and rounds decimals', () => {
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, undefined, -1]) {
+    assert.equal(formatTokenCount(value), '-');
+  }
+  assert.equal(formatTokenCount(12.4), '12t');
+  assert.equal(formatTokenCount(12.5), '13t');
+  assert.equal(formatTokenCount(999.6), '1.0kt');
+});
+
 function sampleTasks() {
   return [
     {
@@ -197,6 +220,29 @@ test('renderDashboard detail mode shows Codex token breakdown', () => {
   assert.match(output, /Cached 100 · Reasoning 5/);
 });
 
+test('renderDashboard detail mode renders unknown token usage kinds neutrally', () => {
+  const tasks = sampleTasks();
+  tasks[1].lastExecution.usage = {
+    kind: 'future-provider',
+    inputTokens: 12,
+    cachedInputTokens: 11,
+    cacheCreationInputTokens: 10,
+    cacheReadInputTokens: 9,
+    outputTokens: 8,
+    reasoningOutputTokens: 7,
+    totalTokens: 20,
+  };
+
+  const output = renderDashboard(tasks, {
+    selectedIndex: 1,
+    now: 1_000,
+    mode: 'detail',
+  });
+
+  assert.match(output, /Total 20 · Input 12 · Output 8/);
+  assert.doesNotMatch(output, /Cached|Reasoning|Cache create|Cache read/);
+});
+
 test('renderDashboard detail mode limits output to terminal height', () => {
   const tasks = sampleTasks();
   tasks[1].outputLines = Array.from({ length: 50 }, (_, index) => `[stdout] line ${index + 1}`);
@@ -209,10 +255,52 @@ test('renderDashboard detail mode limits output to terminal height', () => {
   });
   const lines = output.split('\n');
 
-  assert.ok(lines.length <= 18, `expected at most 18 lines, got ${lines.length}`);
+  assert.equal(lines.length, 18);
   assert.match(output, /esc back · x stop · r run once · l loop · s start\/resume · q quit/);
+  assert.match(output, /Last Token Usage/);
+  assert.match(output, /Total 1,699 · Input 2 · Output 136/);
+  assert.match(output, /Cache create 1,561 · Cache read 0/);
+  assert.match(output, /Selected Output/);
   assert.match(output, /\[stdout\] line 50/);
-  assert.doesNotMatch(output, /\[stdout\] line 1/);
+  assert.doesNotMatch(output, /\[stdout\] line 49/);
+});
+
+test('renderDashboard detail mode shows one usage line at 17 rows', () => {
+  const tasks = sampleTasks();
+  tasks[1].outputLines = Array.from({ length: 50 }, (_, index) => `[stdout] line ${index + 1}`);
+
+  const output = renderDashboard(tasks, {
+    selectedIndex: 1,
+    now: 1_000,
+    mode: 'detail',
+    rows: 17,
+  });
+
+  assert.ok(output.split('\n').length <= 17);
+  assert.match(output, /Last Token Usage/);
+  assert.match(output, /Total 1,699 · Input 2 · Output 136/);
+  assert.doesNotMatch(output, /Cache create 1,561 · Cache read 0/);
+  assert.match(output, /Selected Output/);
+  assert.match(output, /\[stdout\] line 50/);
+  assert.doesNotMatch(output, /\[stdout\] line 49/);
+});
+
+test('renderDashboard detail mode omits usage at 16 rows to preserve output', () => {
+  const tasks = sampleTasks();
+  tasks[1].outputLines = Array.from({ length: 50 }, (_, index) => `[stdout] line ${index + 1}`);
+
+  const output = renderDashboard(tasks, {
+    selectedIndex: 1,
+    now: 1_000,
+    mode: 'detail',
+    rows: 16,
+  });
+
+  assert.ok(output.split('\n').length <= 16);
+  assert.doesNotMatch(output, /Last Token Usage/);
+  assert.match(output, /Selected Output/);
+  assert.match(output, /\[stdout\] line 50/);
+  assert.doesNotMatch(output, /\[stdout\] line 49/);
 });
 
 test('startTui switches between list and detail mode with enter and escape', () => {
