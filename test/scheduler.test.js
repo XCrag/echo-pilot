@@ -25,6 +25,17 @@ test("getJitteredDelayMs supports custom base delay and jitter", () => {
   assert.equal(getJitteredDelayMs({ ...options, random: () => 1 }), 320_000);
 });
 
+test("DEFAULT_COMMANDS launch JavaScript wrappers through the current Node executable", () => {
+  const expectedWrappers = ["codex-json.js", "claude-json.js"];
+
+  assert.equal(DEFAULT_COMMANDS.length, expectedWrappers.length);
+  DEFAULT_COMMANDS.forEach((commandSpec, index) => {
+    assert.equal(commandSpec.command, process.execPath);
+    assert.equal(path.basename(commandSpec.args[0]), expectedWrappers[index]);
+    assert.equal(path.basename(path.dirname(commandSpec.args[0])), "bin");
+  });
+});
+
 test("createTaskController stores Codex lastExecution and usage", () => {
   let child;
   const task = createTaskController(
@@ -428,8 +439,9 @@ test("default commands match the requested codex and claude invocations", () => 
   assert.deepEqual(DEFAULT_COMMANDS, [
     {
       name: "codex",
-      command: path.join(__dirname, "..", "bin", "codex-json.js"),
+      command: process.execPath,
       args: [
+        path.join(__dirname, "..", "bin", "codex-json.js"),
         "exec",
         "--model",
         "gpt-5.6-sol",
@@ -455,8 +467,9 @@ test("default commands match the requested codex and claude invocations", () => 
     },
     {
       name: "claude",
-      command: path.join(__dirname, "..", "bin", "claude-json.js"),
+      command: process.execPath,
       args: [
+        path.join(__dirname, "..", "bin", "claude-json.js"),
         "-p",
         "--bare",
         "--disable-slash-commands",

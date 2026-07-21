@@ -3,8 +3,8 @@
 Small CLI that repeatedly runs two commands:
 
 ```bash
-./bin/codex-json.js exec --model gpt-5.6-sol --config 'model_reasoning_effort="none"' --config 'web_search="disabled"' --disable shell_tool --disable multi_agent --disable hooks --disable plugins --skip-git-repo-check --sandbox read-only --ignore-rules --ephemeral "{{arithmeticPrompt}}"
-./bin/claude-json.js -p --bare --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}"
+node ./bin/codex-json.js exec --model gpt-5.6-sol --config 'model_reasoning_effort="none"' --config 'web_search="disabled"' --disable shell_tool --disable multi_agent --disable hooks --disable plugins --skip-git-repo-check --sandbox read-only --ignore-rules --ephemeral "{{arithmeticPrompt}}"
+node ./bin/claude-json.js -p --bare --disable-slash-commands --strict-mcp-config --system-prompt "" --output-format json "{{arithmeticPrompt}}"
 ```
 
 Each command has its own loop. A command starts, waits for that process to exit,
@@ -128,13 +128,13 @@ Edit `commands.json`:
   "commands": [
     {
       "name": "codex",
-      "command": "./bin/codex-json.js",
-      "args": ["exec", "--model", "gpt-5.6-sol", "--config", "model_reasoning_effort=\"none\"", "--config", "web_search=\"disabled\"", "--disable", "shell_tool", "--disable", "multi_agent", "--disable", "hooks", "--disable", "plugins", "--skip-git-repo-check", "--sandbox", "read-only", "--ignore-rules", "--ephemeral", "{{arithmeticPrompt}}"]
+      "command": "node",
+      "args": ["./bin/codex-json.js", "exec", "--model", "gpt-5.6-sol", "--config", "model_reasoning_effort=\"none\"", "--config", "web_search=\"disabled\"", "--disable", "shell_tool", "--disable", "multi_agent", "--disable", "hooks", "--disable", "plugins", "--skip-git-repo-check", "--sandbox", "read-only", "--ignore-rules", "--ephemeral", "{{arithmeticPrompt}}"]
     },
     {
       "name": "claude",
-      "command": "./bin/claude-json.js",
-      "args": ["-p", "--bare", "--disable-slash-commands", "--strict-mcp-config", "--system-prompt", "", "--output-format", "json", "{{arithmeticPrompt}}"]
+      "command": "node",
+      "args": ["./bin/claude-json.js", "-p", "--bare", "--disable-slash-commands", "--strict-mcp-config", "--system-prompt", "", "--output-format", "json", "{{arithmeticPrompt}}"]
     }
   ]
 }

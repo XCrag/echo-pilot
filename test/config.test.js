@@ -155,7 +155,7 @@ test('loadCommands validates command definitions', () => {
   );
 });
 
-test('repository config invokes Claude through the direct JSON wrapper', () => {
+test('repository config invokes Claude wrapper through Node', () => {
   const configPath = path.join(__dirname, '..', 'commands.json');
   const claude = loadConfig(configPath).commands.find(
     (commandSpec) => commandSpec.name === 'claude',
@@ -163,8 +163,9 @@ test('repository config invokes Claude through the direct JSON wrapper', () => {
 
   assert.deepEqual(claude, {
     name: 'claude',
-    command: path.join(__dirname, '..', 'bin', 'claude-json.js'),
+    command: 'node',
     args: [
+      './bin/claude-json.js',
       '-p',
       '--bare',
       '--disable-slash-commands',
