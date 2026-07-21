@@ -265,6 +265,25 @@ test('renderDashboard detail mode limits output to terminal height', () => {
   assert.doesNotMatch(output, /\[stdout\] line 49/);
 });
 
+test('renderDashboard detail mode wraps one-line output to expose its trailing error', () => {
+  const tasks = sampleTasks();
+  tasks[0].outputLines = [
+    `[stdout] ${'x'.repeat(120)} error=unsupported-option`,
+  ];
+
+  const output = renderDashboard(tasks, {
+    selectedIndex: 0,
+    now: 1_000,
+    mode: 'detail',
+    rows: 18,
+  });
+  const lines = output.split('\n');
+
+  assert.ok(lines.length <= 18);
+  assert.ok(lines.every((line) => line.length <= 82));
+  assert.match(output, /error=unsupported-option/);
+});
+
 test('renderDashboard detail mode shows one usage line at 17 rows', () => {
   const tasks = sampleTasks();
   tasks[1].outputLines = Array.from({ length: 50 }, (_, index) => `[stdout] line ${index + 1}`);
@@ -350,6 +369,46 @@ test('startTui switches between list and detail mode with enter and escape', () 
 
   assert.match(chunks.at(-1), /Recent Logs/);
   assert.doesNotMatch(chunks.at(-1), /Task Detail/);
+
+  session.close();
+});
+
+test('startTui redraws TTY output with readline operations', () => {
+  const stdin = new EventEmitter();
+  stdin.isTTY = true;
+  stdin.setRawMode = () => {};
+  const chunks = [];
+  const stdout = {
+    isTTY: true,
+    write: (chunk) => chunks.push(chunk),
+  };
+  const task = {
+    getState: () => sampleTasks()[0],
+    subscribe: () => () => {},
+    start: () => {},
+    stop: () => {},
+    runNow: () => {},
+  };
+  const runner = {
+    getTasks: () => [task],
+    start: () => {},
+    stop: () => {},
+  };
+  const redrawCalls = [];
+
+  const session = startTui(runner, {
+    stdin,
+    stdout,
+    cursorTo: (_stream, column, row) => {
+      redrawCalls.push(`cursorTo:${column}:${row}`);
+    },
+    clearScreenDown: () => redrawCalls.push('clearScreenDown'),
+    setInterval: () => 1,
+    clearInterval: () => {},
+  });
+
+  assert.deepEqual(redrawCalls, ['cursorTo:0:0', 'clearScreenDown']);
+  assert.match(chunks.at(-1), /Auto Reply/);
 
   session.close();
 });
