@@ -2,6 +2,8 @@
 
 const { spawn: defaultSpawn } = require("node:child_process");
 
+const { buildProviderCommand } = require("../lib/provider-command");
+
 const DEFAULT_MAX_STRUCTURED_OUTPUT_BYTES = 1024 * 1024;
 
 function projectClaudeResult(value) {
@@ -28,6 +30,8 @@ function runClaudeJson({
   },
   propagateSignal = (signal) => process.kill(process.pid, signal),
   maxStructuredOutputBytes = DEFAULT_MAX_STRUCTURED_OUTPUT_BYTES,
+  platform,
+  env,
 } = {}) {
   const structuredCapture = {
     chunks: [],
@@ -84,7 +88,11 @@ function runClaudeJson({
 
   let child;
   try {
-    child = spawn("claude", args, {
+    const providerCommand = buildProviderCommand("claude", args, {
+      platform,
+      env,
+    });
+    child = spawn(providerCommand.command, providerCommand.args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {

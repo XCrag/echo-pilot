@@ -4,6 +4,7 @@ const { spawn: defaultSpawn } = require("node:child_process");
 const path = require("node:path");
 
 const { normalizeCodexRun } = require("../lib/codex-json");
+const { buildProviderCommand } = require("../lib/provider-command");
 
 const DEFAULT_SCHEMA_PATH = path.join(
   __dirname,
@@ -41,6 +42,8 @@ function runCodexJson({
   setTimeout: scheduleTimeout = global.setTimeout,
   clearTimeout: cancelTimeout = global.clearTimeout,
   terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
+  platform,
+  env,
 } = {}) {
   const stdoutChunks = [];
   const signalHandlers = new Map();
@@ -105,7 +108,12 @@ function runCodexJson({
   }
 
   try {
-    child = spawn("codex", buildCodexArgs(args, schemaPath), {
+    const providerCommand = buildProviderCommand(
+      "codex",
+      buildCodexArgs(args, schemaPath),
+      { platform, env },
+    );
+    child = spawn(providerCommand.command, providerCommand.args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (spawnError) {

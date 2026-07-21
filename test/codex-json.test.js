@@ -313,6 +313,43 @@ test("runCodexJson emits one result JSON and forwards stderr", () => {
   assert.deepEqual(exitCodes, [0]);
 });
 
+test("runCodexJson uses the Windows command shim through ComSpec", () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  const spawnCalls = [];
+
+  runCodexJson({
+    args: ["exec", "prompt"],
+    schemaPath: "C:\\repo\\schema.json",
+    platform: "win32",
+    env: { ComSpec: "C:\\Windows\\System32\\cmd.exe" },
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      return child;
+    },
+    stdout: { write: () => {} },
+    stderr: { write: () => {} },
+    setExitCode: () => {},
+  });
+
+  assert.deepEqual(spawnCalls, [{
+    command: "C:\\Windows\\System32\\cmd.exe",
+    args: [
+      "/d",
+      "/s",
+      "/c",
+      "codex.cmd",
+      "exec",
+      "--json",
+      "--output-schema",
+      "C:\\repo\\schema.json",
+      "prompt",
+    ],
+    options: { stdio: ["ignore", "pipe", "pipe"] },
+  }]);
+});
+
 test("runCodexJson preserves UTF-8 split across stdout chunks", () => {
   const child = new EventEmitter();
   child.stdout = new EventEmitter();

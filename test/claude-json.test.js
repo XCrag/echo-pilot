@@ -43,6 +43,8 @@ function createHarness(options = {}) {
     setExitCode: (code) => exitCodes.push(code),
     propagateSignal: (signal) => propagatedSignals.push(signal),
     maxStructuredOutputBytes: options.maxStructuredOutputBytes,
+    platform: options.platform,
+    env: options.env,
   });
 
   return {
@@ -109,6 +111,29 @@ test("runClaudeJson passes direct argv and emits one compact projected result", 
   });
   assert.deepEqual(harness.exitCodes, [0]);
   assert.equal(harness.returnedChild, harness.child);
+});
+
+test("runClaudeJson uses the Windows command shim through ComSpec", () => {
+  const harness = createHarness({
+    args: ["-p", "Calculate 1 + 1"],
+    platform: "win32",
+    env: { ComSpec: "C:\\Windows\\System32\\cmd.exe" },
+  });
+
+  assert.deepEqual(harness.spawnCalls, [{
+    command: "C:\\Windows\\System32\\cmd.exe",
+    args: ["/d", "/s", "/c", "claude.cmd", "-p", "Calculate 1 + 1"],
+    options: { stdio: ["ignore", "pipe", "pipe"] },
+  }]);
+});
+
+test("runClaudeJson falls back to cmd.exe when ComSpec is unavailable", () => {
+  const harness = createHarness({
+    platform: "win32",
+    env: {},
+  });
+
+  assert.equal(harness.spawnCalls[0].command, "cmd.exe");
 });
 
 test("runClaudeJson forwards child stderr unchanged", () => {
