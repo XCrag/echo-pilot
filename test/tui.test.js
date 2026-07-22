@@ -350,6 +350,12 @@ test('startTui switches between list and detail mode with enter and escape', () 
     stdout,
     logs: [],
     now: () => 1_000,
+    cursorTo: () => {
+      throw new Error('non-TTY redraw must not move the cursor');
+    },
+    clearScreenDown: () => {
+      throw new Error('non-TTY redraw must not clear the screen');
+    },
     setInterval: (callback) => {
       intervals.push(callback);
       return callback;
@@ -377,10 +383,13 @@ test('startTui redraws TTY output with readline operations', () => {
   const stdin = new EventEmitter();
   stdin.isTTY = true;
   stdin.setRawMode = () => {};
-  const chunks = [];
+  const events = [];
   const stdout = {
     isTTY: true,
-    write: (chunk) => chunks.push(chunk),
+    write: (chunk) => {
+      const value = String(chunk);
+      events.push(value.includes('Auto Reply') ? 'write:frame' : `write:${value}`);
+    },
   };
   const task = {
     getState: () => sampleTasks()[0],
@@ -394,21 +403,23 @@ test('startTui redraws TTY output with readline operations', () => {
     start: () => {},
     stop: () => {},
   };
-  const redrawCalls = [];
-
   const session = startTui(runner, {
     stdin,
     stdout,
     cursorTo: (_stream, column, row) => {
-      redrawCalls.push(`cursorTo:${column}:${row}`);
+      events.push(`cursorTo:${column}:${row}`);
     },
-    clearScreenDown: () => redrawCalls.push('clearScreenDown'),
+    clearScreenDown: () => events.push('clearScreenDown'),
     setInterval: () => 1,
     clearInterval: () => {},
   });
 
-  assert.deepEqual(redrawCalls, ['cursorTo:0:0', 'clearScreenDown']);
-  assert.match(chunks.at(-1), /Auto Reply/);
+  assert.deepEqual(events.slice(0, 4), [
+    'write:\x1b[?25l',
+    'cursorTo:0:0',
+    'write:frame',
+    'clearScreenDown',
+  ]);
 
   session.close();
 });
