@@ -122,7 +122,7 @@ Edit `commands.json`:
 ```json
 {
   "schedule": {
-    "baseDelaySeconds": 120,
+    "baseDelaySeconds": 300,
     "jitterSeconds": 20
   },
   "commands": [
@@ -140,8 +140,8 @@ Edit `commands.json`:
 }
 ```
 
-`baseDelaySeconds: 120` with `jitterSeconds: 20` means each next run is
-scheduled randomly from 100 to 140 seconds after the previous command exits.
+`baseDelaySeconds: 300` with `jitterSeconds: 20` means each next run is
+scheduled randomly between 280 and 320 seconds later.
 
 Restart `node bin/auto-reply-tui.js` or `node bin/auto-reply.js` after changing
 the file.
