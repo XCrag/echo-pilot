@@ -113,9 +113,13 @@ function runCodexJson({
       buildCodexArgs(args, schemaPath),
       { platform, env },
     );
-    child = spawn(providerCommand.command, providerCommand.args, {
+    const spawnOptions = {
       stdio: ["ignore", "pipe", "pipe"],
-    });
+    };
+    if ((platform || process.platform) === "win32") {
+      spawnOptions.windowsHide = true;
+    }
+    child = spawn(providerCommand.command, providerCommand.args, spawnOptions);
   } catch (spawnError) {
     finish({ spawnError });
     return null;

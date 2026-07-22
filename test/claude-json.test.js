@@ -123,7 +123,10 @@ test("runClaudeJson uses the Windows command shim through ComSpec", () => {
   assert.deepEqual(harness.spawnCalls, [{
     command: "C:\\Windows\\System32\\cmd.exe",
     args: ["/d", "/s", "/c", "claude.cmd", "-p", "Calculate 1 + 1"],
-    options: { stdio: ["ignore", "pipe", "pipe"] },
+    options: {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    },
   }]);
 });
 

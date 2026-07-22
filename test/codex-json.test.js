@@ -346,7 +346,10 @@ test("runCodexJson uses the Windows command shim through ComSpec", () => {
       "C:\\repo\\schema.json",
       "prompt",
     ],
-    options: { stdio: ["ignore", "pipe", "pipe"] },
+    options: {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    },
   }]);
 });
 
