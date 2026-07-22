@@ -30,7 +30,7 @@
 - `test/tui.test.js`: Default schedule rendering behavior.
 - `README.md`: User-facing configuration example and timing explanation.
 
-### Task 1: Lock the New Defaults With Failing Tests
+### Task 1: Test and Implement the 300-Second Defaults
 
 **Files:**
 - Modify: `test/scheduler.test.js`
@@ -107,8 +107,6 @@ node --test test/scheduler.test.js test/config.test.js test/tui.test.js
 Expected: FAIL on the new default scheduler, missing-config schedule, and TUI
 display expectations. Explicit custom schedule tests continue to pass.
 
-### Task 2: Implement the 300-Second Defaults
-
 **Files:**
 - Modify: `lib/config.js`
 - Modify: `lib/scheduler.js`
@@ -183,11 +181,11 @@ git add lib/config.js lib/scheduler.js lib/tui.js commands.json test/scheduler.t
 git commit -m "feat: use 300 second default schedule"
 ```
 
-### Task 3: Synchronize Documentation and Verify the Repository
+### Task 2: Synchronize Documentation and Verify the Repository
 
 **Files:**
 - Modify: `README.md`
-- Verify: all files changed in Tasks 1 and 2
+- Verify: all files changed in Task 1
 
 **Interfaces:**
 - Consumes: The implemented `300 ±20s` runtime contract.
