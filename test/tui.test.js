@@ -102,7 +102,7 @@ test('renderDashboard list mode shows task status without selected output', () =
   });
 
   assert.match(output, /┌ Auto Reply/);
-  assert.match(output, /│ 2 tasks · schedule 120s ±20s/);
+  assert.match(output, /│ 2 tasks · schedule 300s ±20s/);
   assert.match(output, /│ ↑\/↓ select · enter detail · s start · x stop · r once · l loop · q quit/);
   assert.match(output, /│ Task\s+│ Status\s+│ Mode\s+│ Next Run\s+│ Last\s+│ Sel │/);
   assert.match(output, /│ codex\s+│ RUNNING\s+│ LOOP\s+│ -\s+│ -\s+│\s+│/);

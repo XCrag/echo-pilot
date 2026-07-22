@@ -1,6 +1,6 @@
 {
   "schedule": {
-    "baseDelaySeconds": 120,
+    "baseDelaySeconds": 300,
     "jitterSeconds": 20
   },
   "commands": [

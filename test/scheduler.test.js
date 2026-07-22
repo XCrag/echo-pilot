@@ -12,17 +12,17 @@ const {
 } = require("../lib/scheduler");
 
 test("getJitteredDelayMs returns base delay plus or minus jitter", () => {
-  assert.equal(getJitteredDelayMs({ random: () => 0 }), 100_000);
-  assert.equal(getJitteredDelayMs({ random: () => 0.5 }), 120_000);
-  assert.equal(getJitteredDelayMs({ random: () => 1 }), 140_000);
+  assert.equal(getJitteredDelayMs({ random: () => 0 }), 280_000);
+  assert.equal(getJitteredDelayMs({ random: () => 0.5 }), 300_000);
+  assert.equal(getJitteredDelayMs({ random: () => 1 }), 320_000);
 });
 
 test("getJitteredDelayMs supports custom base delay and jitter", () => {
-  const options = { baseDelayMs: 300_000, jitterMs: 20_000 };
+  const options = { baseDelayMs: 120_000, jitterMs: 20_000 };
 
-  assert.equal(getJitteredDelayMs({ ...options, random: () => 0 }), 280_000);
-  assert.equal(getJitteredDelayMs({ ...options, random: () => 0.5 }), 300_000);
-  assert.equal(getJitteredDelayMs({ ...options, random: () => 1 }), 320_000);
+  assert.equal(getJitteredDelayMs({ ...options, random: () => 0 }), 100_000);
+  assert.equal(getJitteredDelayMs({ ...options, random: () => 0.5 }), 120_000);
+  assert.equal(getJitteredDelayMs({ ...options, random: () => 1 }), 140_000);
 });
 
 test("DEFAULT_COMMANDS launch JavaScript wrappers through the current Node executable", () => {
@@ -521,7 +521,7 @@ test("runCommandLoop starts immediately and schedules the next run after close",
   spawned[0].child.emit("close", 0);
 
   assert.equal(timers.length, 1);
-  assert.equal(timers[0].delayMs, 120_000);
+  assert.equal(timers[0].delayMs, 300_000);
 
   timers[0].callback();
 
@@ -645,7 +645,7 @@ test("createTaskController exposes status and can stop a waiting task", () => {
   spawned[0].child.emit("close", 0);
 
   assert.equal(task.getState().status, "waiting");
-  assert.equal(task.getState().nextRunAt, 121_000);
+  assert.equal(task.getState().nextRunAt, 301_000);
 
   task.stop();
 

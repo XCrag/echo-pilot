@@ -139,6 +139,10 @@ test('loadConfig resolves relative fallback commands from a missing config direc
     config.commands[0].command,
     path.join(configDirectory, 'bin', 'wrapper.js'),
   );
+  assert.deepEqual(config.schedule, {
+    baseDelayMs: 300_000,
+    jitterMs: 20_000,
+  });
   assert.equal(errors.length, 1);
   assert.match(errors[0], /Using built-in defaults/);
 });
